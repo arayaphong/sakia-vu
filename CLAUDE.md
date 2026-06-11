@@ -18,8 +18,8 @@ Features:
 - 16 frequency bands, logarithmic scale 30 Hz → 16 kHz
 - 28 LED segments per band, color-coded green/amber/red by level (0–60% green, 60–82% amber, >82% red)
 - Peak hold with gravity-fall animation
-- Gain slider (0.5×–6×)
-- Real-time microphone input via PipeWire
+- Gain slider (0.1×–1.5×)
+- Real-time audio capture via PipeWire (microphone or system output monitor)
 
 ## Build System
 

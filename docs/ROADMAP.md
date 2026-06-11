@@ -46,7 +46,7 @@ compilation at install time; until packaging (v0.4) exists, a plain GKeyFile in
 `~/.config/sakiavu.ini` is less friction. Start with GKeyFile, migrate when packaged.
 
 ### 5. Error surfacing
-`onToggle` shows "MIC ERROR" but PipeWire failures are silent in the stream events. Hook
+`onToggle` shows "▲ CAPTURE ERROR" but PipeWire failures are silent in the stream events. Hook
 `pw_stream_events.state_changed`, watch for `PW_STREAM_STATE_ERROR`, forward the error
 string to the status label via `g_idle_add`.
 
