@@ -60,6 +60,10 @@ void AppController::onOutputModeSelectedStatic(GtkButton*, gpointer user_data) {
     static_cast<AppController*>(user_data)->setCaptureMode(AudioCaptureMode::Output);
 }
 
+void AppController::onGainChangedStatic(GtkRange*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onGainChanged();
+}
+
 void AppController::setStatusMarkup(const char* markup) {
     gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
 }
@@ -134,6 +138,12 @@ void AppController::onDeviceSelected() {
     }
 
     restartCapture();
+}
+
+void AppController::onGainChanged() {
+    gchar* text = g_strdup_printf("%.1fx", gtk_range_get_value(GTK_RANGE(gainScale)));
+    gtk_label_set_text(GTK_LABEL(gainValueLabel), text);
+    g_free(text);
 }
 
 void AppController::setCaptureMode(AudioCaptureMode mode) {
@@ -325,10 +335,16 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     GtkWidget* gainLabel = gtk_label_new("GAIN");
     gtk_box_append(GTK_BOX(controls), gainLabel);
 
-    gainScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.5, 6.0, 0.1);
-    gtk_range_set_value(GTK_RANGE(gainScale), 1.8);
+    gainScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.1, 1.5, 0.1);
+    gtk_range_set_value(GTK_RANGE(gainScale), 1.0);
     gtk_widget_set_size_request(gainScale, 180, -1);
+    g_signal_connect(gainScale, "value-changed", G_CALLBACK(onGainChangedStatic), this);
     gtk_box_append(GTK_BOX(controls), gainScale);
+
+    gainValueLabel = gtk_label_new(nullptr);
+    gtk_widget_set_size_request(gainValueLabel, 42, -1);
+    onGainChanged();
+    gtk_box_append(GTK_BOX(controls), gainValueLabel);
 
     peakBtn = gtk_toggle_button_new_with_label("Peak Hold");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(peakBtn), TRUE);

@@ -27,12 +27,14 @@ private:
     static void onDeviceSelectedStatic(GObject* object, GParamSpec* pspec, gpointer user_data);
     static void onMicModeSelectedStatic(GtkButton* btn, gpointer user_data);
     static void onOutputModeSelectedStatic(GtkButton* btn, gpointer user_data);
+    static void onGainChangedStatic(GtkRange* range, gpointer user_data);
 
     gboolean onTick(GtkWidget* widget, GdkFrameClock* clock);
     void onToggle(GtkButton* btn);
     void onPeakToggle(GtkToggleButton* btn);
     void onActivate(GtkApplication* gtkApp);
     void onDeviceSelected();
+    void onGainChanged();
     void setCaptureMode(AudioCaptureMode mode);
     bool restartCapture();
     void refreshDeviceList();
@@ -50,6 +52,7 @@ private:
     GtkWidget* toggleBtn = nullptr;
     GtkWidget* peakBtn = nullptr;
     GtkWidget* gainScale = nullptr;
+    GtkWidget* gainValueLabel = nullptr;
     GtkWidget* statusLabel = nullptr;
     GtkWidget* listenIcon = nullptr;
     GtkWidget* listenLabel = nullptr;
