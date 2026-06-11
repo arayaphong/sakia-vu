@@ -25,19 +25,22 @@ private:
     static void onActivateStatic(GtkApplication* gtkApp, gpointer user_data);
     static void onColorSchemeChangedStatic(GSettings* settings, gchar* key, gpointer user_data);
     static void onDeviceSelectedStatic(GObject* object, GParamSpec* pspec, gpointer user_data);
-    static void onCaptureModeToggledStatic(GtkToggleButton* btn, gpointer user_data);
+    static void onMicModeSelectedStatic(GtkButton* btn, gpointer user_data);
+    static void onOutputModeSelectedStatic(GtkButton* btn, gpointer user_data);
 
     gboolean onTick(GtkWidget* widget, GdkFrameClock* clock);
     void onToggle(GtkButton* btn);
     void onPeakToggle(GtkToggleButton* btn);
     void onActivate(GtkApplication* gtkApp);
     void onDeviceSelected();
-    void onCaptureModeToggled(GtkToggleButton* btn);
+    void setCaptureMode(AudioCaptureMode mode);
     bool restartCapture();
     void refreshDeviceList();
     void initThemePreferenceSync();
     void syncThemePreference();
     void setStatusMarkup(const char* markup);
+    void updateListenButton();
+    void updateModeMenuChecks();
 
     std::unique_ptr<IAudioSource> audioSource_;
     std::unique_ptr<ISpectrumAnalyzer> spectrumAnalyzer_;
@@ -48,7 +51,12 @@ private:
     GtkWidget* peakBtn = nullptr;
     GtkWidget* gainScale = nullptr;
     GtkWidget* statusLabel = nullptr;
-    GtkWidget* captureModeBtn = nullptr;
+    GtkWidget* listenIcon = nullptr;
+    GtkWidget* listenLabel = nullptr;
+    GtkWidget* captureModeMenuBtn = nullptr;
+    GtkWidget* captureModePopover = nullptr;
+    GtkWidget* micModeCheck = nullptr;
+    GtkWidget* outputModeCheck = nullptr;
     GtkWidget* deviceDropDown = nullptr;
     GSettings* interfaceSettings = nullptr;
 

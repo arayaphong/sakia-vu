@@ -52,12 +52,30 @@ void AppController::onDeviceSelectedStatic(GObject*, GParamSpec*, gpointer user_
     static_cast<AppController*>(user_data)->onDeviceSelected();
 }
 
-void AppController::onCaptureModeToggledStatic(GtkToggleButton* btn, gpointer user_data) {
-    static_cast<AppController*>(user_data)->onCaptureModeToggled(btn);
+void AppController::onMicModeSelectedStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->setCaptureMode(AudioCaptureMode::Microphone);
+}
+
+void AppController::onOutputModeSelectedStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->setCaptureMode(AudioCaptureMode::Output);
 }
 
 void AppController::setStatusMarkup(const char* markup) {
     gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
+}
+
+void AppController::updateListenButton() {
+    const char* iconName = audioSource_->captureMode() == AudioCaptureMode::Output
+                               ? "audio-speakers-symbolic"
+                               : "audio-input-microphone-symbolic";
+    gtk_image_set_from_icon_name(GTK_IMAGE(listenIcon), iconName);
+    gtk_label_set_text(GTK_LABEL(listenLabel), audioSource_->running() ? "Stop" : "Listen");
+}
+
+void AppController::updateModeMenuChecks() {
+    bool outputMode = audioSource_->captureMode() == AudioCaptureMode::Output;
+    gtk_widget_set_opacity(micModeCheck, outputMode ? 0.0 : 1.0);
+    gtk_widget_set_opacity(outputModeCheck, outputMode ? 1.0 : 0.0);
 }
 
 gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock*) {
@@ -80,7 +98,7 @@ void AppController::onToggle(GtkButton* btn) {
     if (audioSource_->running()) {
         audioSource_->stop();
         spectrumAnalyzer_->reset();
-        gtk_button_set_label(btn, "Listen");
+        updateListenButton();
         setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
         
         MeterState state = spectrumAnalyzer_->getState();
@@ -88,7 +106,7 @@ void AppController::onToggle(GtkButton* btn) {
         meter_->updateState(state);
         gtk_widget_queue_draw(meter_->widget());
     } else if (audioSource_->start()) {
-        gtk_button_set_label(btn, "Stop");
+        updateListenButton();
         setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
     } else {
         setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
@@ -118,13 +136,18 @@ void AppController::onDeviceSelected() {
     restartCapture();
 }
 
-void AppController::onCaptureModeToggled(GtkToggleButton* btn) {
-    AudioCaptureMode mode = gtk_toggle_button_get_active(btn) ? AudioCaptureMode::Output
-                                                             : AudioCaptureMode::Microphone;
+void AppController::setCaptureMode(AudioCaptureMode mode) {
+    if (audioSource_->captureMode() == mode) {
+        gtk_popover_popdown(GTK_POPOVER(captureModePopover));
+        return;
+    }
+
     audioSource_->setCaptureMode(mode);
     audioSource_->setDeviceTarget("");
-    gtk_button_set_label(GTK_BUTTON(btn), mode == AudioCaptureMode::Output ? "Output" : "Mic");
     refreshDeviceList();
+    updateListenButton();
+    updateModeMenuChecks();
+    gtk_popover_popdown(GTK_POPOVER(captureModePopover));
 
     if (audioSource_->running()) {
         restartCapture();
@@ -135,10 +158,11 @@ bool AppController::restartCapture() {
     audioSource_->stop();
     spectrumAnalyzer_->reset();
     if (audioSource_->start()) {
+        updateListenButton();
         setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
         return true;
     } else {
-        gtk_button_set_label(GTK_BUTTON(toggleBtn), "Listen");
+        updateListenButton();
         setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
         return false;
     }
@@ -248,19 +272,49 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Controls: start/stop, gain, peak hold.
     GtkWidget* controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
 
-    toggleBtn = gtk_button_new_with_label("Listen");
+    GtkWidget* captureGroup = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(captureGroup, "linked");
+
+    toggleBtn = gtk_button_new();
+    GtkWidget* listenContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    listenIcon = gtk_image_new();
+    listenLabel = gtk_label_new(nullptr);
+    gtk_box_append(GTK_BOX(listenContent), listenIcon);
+    gtk_box_append(GTK_BOX(listenContent), listenLabel);
+    gtk_button_set_child(GTK_BUTTON(toggleBtn), listenContent);
+    updateListenButton();
     g_signal_connect(toggleBtn, "clicked", G_CALLBACK(onToggleStatic), this);
-    gtk_box_append(GTK_BOX(controls), toggleBtn);
+    gtk_box_append(GTK_BOX(captureGroup), toggleBtn);
 
-    GtkWidget* modeLabel = gtk_label_new("Mode");
-    gtk_box_append(GTK_BOX(controls), modeLabel);
+    captureModeMenuBtn = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(captureModeMenuBtn), "pan-down-symbolic");
+    gtk_widget_set_tooltip_text(captureModeMenuBtn, "Choose capture mode");
 
-    captureModeBtn = gtk_toggle_button_new_with_label("Mic");
-    g_signal_connect(captureModeBtn, "toggled", G_CALLBACK(onCaptureModeToggledStatic), this);
-    gtk_box_append(GTK_BOX(controls), captureModeBtn);
+    captureModePopover = gtk_popover_new();
+    GtkWidget* modeBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget* micModeBtn = gtk_button_new();
+    GtkWidget* micModeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    micModeCheck = gtk_image_new_from_icon_name("object-select-symbolic");
+    gtk_box_append(GTK_BOX(micModeRow), micModeCheck);
+    gtk_box_append(GTK_BOX(micModeRow), gtk_label_new("Mic"));
+    gtk_button_set_child(GTK_BUTTON(micModeBtn), micModeRow);
 
-    GtkWidget* inputLabel = gtk_label_new("Device");
-    gtk_box_append(GTK_BOX(controls), inputLabel);
+    GtkWidget* outputModeBtn = gtk_button_new();
+    GtkWidget* outputModeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    outputModeCheck = gtk_image_new_from_icon_name("object-select-symbolic");
+    gtk_box_append(GTK_BOX(outputModeRow), outputModeCheck);
+    gtk_box_append(GTK_BOX(outputModeRow), gtk_label_new("Output"));
+    gtk_button_set_child(GTK_BUTTON(outputModeBtn), outputModeRow);
+    updateModeMenuChecks();
+
+    g_signal_connect(micModeBtn, "clicked", G_CALLBACK(onMicModeSelectedStatic), this);
+    g_signal_connect(outputModeBtn, "clicked", G_CALLBACK(onOutputModeSelectedStatic), this);
+    gtk_box_append(GTK_BOX(modeBox), micModeBtn);
+    gtk_box_append(GTK_BOX(modeBox), outputModeBtn);
+    gtk_popover_set_child(GTK_POPOVER(captureModePopover), modeBox);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(captureModeMenuBtn), captureModePopover);
+    gtk_box_append(GTK_BOX(captureGroup), captureModeMenuBtn);
+    gtk_box_append(GTK_BOX(controls), captureGroup);
 
     deviceDropDown = gtk_drop_down_new(nullptr, nullptr);
     gtk_widget_set_hexpand(deviceDropDown, TRUE);
