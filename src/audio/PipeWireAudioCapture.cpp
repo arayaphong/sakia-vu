@@ -1,4 +1,4 @@
-#include "AudioCapture.h"
+#include "PipeWireAudioCapture.h"
 
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
@@ -10,21 +10,21 @@ constexpr size_t kRingSize = 16384; // > FFT size, ~340 ms at 48 kHz
 
 const pw_stream_events kStreamEvents = {
     .version = PW_VERSION_STREAM_EVENTS,
-    .param_changed = AudioCapture::onParamChanged,
-    .process = AudioCapture::onProcess,
+    .param_changed = PipeWireAudioCapture::onParamChanged,
+    .process = PipeWireAudioCapture::onProcess,
 };
 } // namespace
 
-AudioCapture::AudioCapture() : ring_(kRingSize, 0.0f) {
+PipeWireAudioCapture::PipeWireAudioCapture() : ring_(kRingSize, 0.0f) {
     pw_init(nullptr, nullptr);
 }
 
-AudioCapture::~AudioCapture() {
+PipeWireAudioCapture::~PipeWireAudioCapture() {
     stop();
     pw_deinit();
 }
 
-bool AudioCapture::start() {
+bool PipeWireAudioCapture::start() {
     if (running_) return true;
 
     loop_ = pw_thread_loop_new("sakia-audio", nullptr);
@@ -67,7 +67,7 @@ bool AudioCapture::start() {
     return true;
 }
 
-void AudioCapture::stop() {
+void PipeWireAudioCapture::stop() {
     if (loop_) pw_thread_loop_stop(loop_);
     if (stream_) {
         pw_stream_destroy(stream_);
@@ -85,7 +85,7 @@ void AudioCapture::stop() {
     filled_ = 0;
 }
 
-void AudioCapture::latest(float* dst, size_t n) {
+void PipeWireAudioCapture::latest(float* dst, size_t n) {
     std::lock_guard<std::mutex> lock(mutex_);
     size_t avail = std::min(n, filled_);
     std::memset(dst, 0, (n - avail) * sizeof(float));
@@ -97,7 +97,7 @@ void AudioCapture::latest(float* dst, size_t n) {
     std::memcpy(out + first, ring_.data(), (avail - first) * sizeof(float));
 }
 
-void AudioCapture::push(const float* samples, size_t n) {
+void PipeWireAudioCapture::push(const float* samples, size_t n) {
     std::lock_guard<std::mutex> lock(mutex_);
     for (size_t i = 0; i < n; i++) {
         ring_[writePos_] = samples[i];
@@ -106,8 +106,8 @@ void AudioCapture::push(const float* samples, size_t n) {
     filled_ = std::min(filled_ + n, kRingSize);
 }
 
-void AudioCapture::onProcess(void* userdata) {
-    auto* self = static_cast<AudioCapture*>(userdata);
+void PipeWireAudioCapture::onProcess(void* userdata) {
+    auto* self = static_cast<PipeWireAudioCapture*>(userdata);
     pw_buffer* b = pw_stream_dequeue_buffer(self->stream_);
     if (!b) return;
 
@@ -122,8 +122,8 @@ void AudioCapture::onProcess(void* userdata) {
     pw_stream_queue_buffer(self->stream_, b);
 }
 
-void AudioCapture::onParamChanged(void* userdata, uint32_t id, const struct spa_pod* param) {
-    auto* self = static_cast<AudioCapture*>(userdata);
+void PipeWireAudioCapture::onParamChanged(void* userdata, uint32_t id, const struct spa_pod* param) {
+    auto* self = static_cast<PipeWireAudioCapture*>(userdata);
     if (id != SPA_PARAM_Format || !param) return;
 
     spa_audio_info_raw info{};

@@ -7,31 +7,32 @@
 
 #include <fftw3.h>
 
+#include "core/interfaces/ISpectrumAnalyzer.h"
+
 // Converts a 4096-sample window into 16 log-spaced band levels (0..1),
 // replicating WebAudio AnalyserNode behaviour from the HTML reference:
 // Blackman window, per-bin magnitude smoothing (tau = 0.6), dB mapping
 // [-100, -30] -> [0, 1], then attack/release ballistics and peak hold.
-class SpectrumAnalyzer {
+class FftwSpectrumAnalyzer final : public ISpectrumAnalyzer {
 public:
     static constexpr int kNumBands = 16;
     static constexpr int kFftSize = 4096;
     static constexpr float kFMin = 30.0f;
     static constexpr float kFMax = 16000.0f;
 
-    SpectrumAnalyzer();
-    ~SpectrumAnalyzer();
+    FftwSpectrumAnalyzer();
+    ~FftwSpectrumAnalyzer() override;
 
-    void setSampleRate(uint32_t rate);
+    size_t sampleCount() const override { return kFftSize; }
+    void setSampleRate(uint32_t rate) override;
 
     // samples: kFftSize mono floats. Call once per animation frame.
-    void update(const float* samples, float gain, bool peakHold);
+    void update(const float* samples, float gain, bool peakHold) override;
 
-    void reset();
-    void resetPeaks();
+    void reset() override;
+    void resetPeaks() override;
 
-    const std::array<float, kNumBands>& levels() const { return levels_; }
-    const std::array<float, kNumBands>& peaks() const { return peaks_; }
-    const std::array<std::string, kNumBands>& labels() const { return labels_; }
+    MeterState getState() const override;
 
 private:
     void buildBandEdges();

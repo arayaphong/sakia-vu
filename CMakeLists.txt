@@ -13,20 +13,21 @@ set(SKIA_DIR ${CMAKE_SOURCE_DIR}/third_party/skia)
 set(SKIA_LIB_DIR ${SKIA_DIR}/out/Release-x64)
 
 add_executable(sakia-vu
-    src/main.cpp
-    src/AudioCapture.cpp
-    src/SpectrumAnalyzer.cpp
-    src/MeterRenderer.cpp
-    src/MeterWidget.cpp
+    src/app/main.cpp
+    src/app/AppController.cpp
+    src/audio/PipeWireAudioCapture.cpp
+    src/audio/FftwSpectrumAnalyzer.cpp
+    src/ui/SkiaMeterRenderer.cpp
+    src/ui/GtkMeterWidget.cpp
 )
 
-target_include_directories(sakia-vu PRIVATE ${SKIA_DIR})
+target_include_directories(sakia-vu PRIVATE ${SKIA_DIR} src)
 
 # Offscreen render smoke test (no GTK/audio needed).
 add_executable(render-test EXCLUDE_FROM_ALL
     tools/render_test.cpp
-    src/SpectrumAnalyzer.cpp
-    src/MeterRenderer.cpp
+    src/audio/FftwSpectrumAnalyzer.cpp
+    src/ui/SkiaMeterRenderer.cpp
 )
 target_include_directories(render-test PRIVATE ${SKIA_DIR} src)
 target_link_libraries(render-test PRIVATE

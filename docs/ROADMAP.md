@@ -10,15 +10,17 @@ priority order, with notes on where each change lands in the current code.
 ## v0.2 — Audio robustness & UX
 
 ### 1. Input device selection
-Currently `AudioCapture::start()` connects with `PW_STREAM_FLAG_AUTOCONNECT` to the
-default source. Add a dropdown (GtkDropDown) listing PipeWire nodes.
+Currently `PipeWireAudioCapture::start()` connects with `PW_STREAM_FLAG_AUTOCONNECT`
+to the default source. Add a dropdown (GtkDropDown) listing PipeWire nodes.
 
 - Enumerate nodes with `pw_registry` + `PW_TYPE_INTERFACE_Node`, filter
   `media.class == "Audio/Source"` (and `"Audio/Sink"` for monitor capture — see #2).
 - Pass the chosen node via `PW_KEY_TARGET_OBJECT` in the stream properties.
 - Needs a small `pw_thread_loop`-owned registry listener; deliver node list to the UI
   thread with `g_idle_add`.
-- Files: `src/AudioCapture.{h,cpp}` (enumeration + target), `src/main.cpp` (dropdown).
+- Files: `src/audio/PipeWireAudioCapture.{h,cpp}` for enumeration + target selection,
+  `src/core/interfaces/IAudioSource.h` if the app needs a device-selection contract,
+  and `src/app/AppController.{h,cpp}` for dropdown wiring.
 
 ### 2. "What's playing" mode (monitor capture)
 Meter the system output instead of the mic — usually the more interesting use of a
@@ -28,9 +30,9 @@ Start button. Cheap once #1 exists; can even ship before #1.
 
 ### 3. Stereo
 The stream currently forces `channels = 1` (PipeWire downmixes). For a proper L/R view:
-- Request 2 channels; deinterleave in `AudioCapture::onProcess`.
-- Two `SpectrumAnalyzer` instances, or one analyzer extended to N channels (preferred:
-  keep its FFT plan shared, duplicate the per-channel state arrays).
+- Request 2 channels; deinterleave in `PipeWireAudioCapture::onProcess`.
+- Two `ISpectrumAnalyzer` instances, or one analyzer implementation extended to N
+  channels (preferred: keep its FFT plan shared, duplicate per-channel state arrays).
 - Renderer: either mirrored split (L left / R right) or 32 thin bars interleaved.
   Decide when implementing; mirrored split keeps the 16-band look.
 
@@ -57,20 +59,23 @@ The vendored prebuilt was built with GL support (`libglvnd` in deps).
   `GrDirectContext` via `GrGLMakeNativeInterface()`, wrap the GtkGLArea's FBO with
   `GrBackendRenderTargets::MakeGL` (query `GL_FRAMEBUFFER_BINDING` — GTK renders to its
   own FBO, not 0).
-- Keep the CPU path as fallback (a `--software` flag); `MeterRenderer` already takes a
-  plain `SkCanvas*` so it is backend-agnostic. Only `MeterWidget` changes.
+- Keep the CPU path as fallback (a `--software` flag); `SkiaMeterRenderer` already
+  takes a plain `SkCanvas*` so it is backend-agnostic. Only the `IMeterWidget`
+  implementation should change.
 - Risk: GTK4 GL area uses GLES or GL depending on the session; test both
   (`GDK_DEBUG=gl-prefer-gl`).
 
 ### 7. Resolution-independent layout polish
-`MeterRenderer::draw` scales the logical 1640×560 uniformly... but non-16:9-ish window
-shapes stretch segments. Options: letterbox (preserve aspect, pad with screen bg) or
-recompute layout from actual W/H (the constants are already `constexpr` ratios — make
-them fractions of H instead of absolutes). Letterboxing is closer to the HTML reference.
+`SkiaMeterRenderer::draw` scales the logical 1640×560 uniformly... but non-16:9-ish
+window shapes stretch segments. Options: letterbox (preserve aspect, pad with screen
+bg) or recompute layout from actual W/H (the constants are already `constexpr` ratios
+— make them fractions of H instead of absolutes). Letterboxing is closer to the HTML
+reference.
 
 ### 8. Configurable bands / FFT size
-16 bands × 28 segments and FFT 4096 are compile-time constants in `SpectrumAnalyzer` /
-`MeterRenderer`. Making bands runtime (8/16/32/64) requires:
+16 bands × 28 segments and FFT 4096 are compile-time constants in
+`FftwSpectrumAnalyzer` / `SkiaMeterRenderer`. Making bands runtime (8/16/32/64)
+requires:
 - `std::array` → `std::vector` for levels/peaks/edges/labels.
 - FFT size can stay 4096 (resolution is sufficient down to 30 Hz: bin ≈ 11.7 Hz @48k;
   the lowest band spans ~2 bins — already marginal, see #9).
@@ -100,7 +105,8 @@ averaging — table computed once in `buildBandEdges`).
 
 ### 12. Desktop integration
 `dev.arme.SakiaVU.desktop`, an SVG icon (the meter motif), `install()` rules in CMake.
-App ID is already `dev.arme.SakiaVU` in `main.cpp` — keep them in sync.
+App ID is already `dev.arme.SakiaVU` in `src/app/AppController.cpp` — keep them in
+sync.
 
 ### 13. Flatpak
 PipeWire + GTK4 apps sandbox cleanly; needs `--socket=pulseaudio` replaced by the
@@ -113,7 +119,7 @@ GitHub Actions: Arch container job running `fetch-skia.sh`, build both targets, 
 pixel tolerance — `render_test.cpp` is deterministic (fixed seed, fixed frame count), so
 golden-image testing is viable. Font availability in the container is the only
 flakiness risk: install `ttf-dejavu` and the candidate list in
-`MeterRenderer.cpp:makeMonoTypeface` resolves identically.
+`src/ui/SkiaMeterRenderer.cpp:makeMonoTypeface` resolves identically.
 
 ---
 
@@ -127,7 +133,8 @@ flakiness risk: install `ttf-dejavu` and the candidate list in
   ~60 fps**, copied from the HTML's rAF loop. If the tick rate ever changes (GLArea
   vsync at 144 Hz!), convert them to per-second rates first or the meter feel changes:
   `release = 1 − pow(1 − 0.22, dt·60)`, `gravity = 0.0009 · (dt·60)²`-ish.
-- `MeterWidget` relies on `kBGRA_8888 + premul == CAIRO_FORMAT_ARGB32` (little-endian).
+- `GtkMeterWidget` relies on `kBGRA_8888 + premul == CAIRO_FORMAT_ARGB32`
+  (little-endian).
   Fine for x86_64/ARM64 Linux; revisit only if that assumption ever breaks.
 - Prebuilt Skia is libstdc++ — if it's ever swapped for a libc++ build, the whole app
   must move to clang + libc++.

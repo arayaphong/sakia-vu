@@ -64,16 +64,20 @@ cmake --build build --target render-test
 
 ```
 src/
-  AudioCapture.{h,cpp}    — PipeWire capture thread, ring buffer
-  SpectrumAnalyzer.{h,cpp} — FFTW FFT, Blackman window, band levels, ballistics
-  MeterRenderer.{h,cpp}   — Skia drawing (segments, glow, labels)
-  MeterWidget.{h,cpp}     — GtkDrawingArea host, Skia→cairo blit
-  main.cpp                — GtkApplication, controls
+  app/                    — composition root and GTK application controller
+  audio/                  — PipeWire audio source and FFTW spectrum analyzer
+  core/interfaces/        — app-facing abstractions for DI
+  core/models/            — shared state models
+  ui/                     — GTK meter widget and Skia renderer
 tools/
   render_test.cpp         — Offscreen smoke test
 docs/
+  ARCHITECTURE.md         — Code structure and DI boundaries
   ROADMAP.md              — Planned features and known constraints
 ```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current SOLID/DI layout and
+dependency direction.
 
 ## Roadmap
 

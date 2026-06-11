@@ -6,24 +6,26 @@
 #include <mutex>
 #include <vector>
 
+#include "core/interfaces/IAudioSource.h"
+
 struct pw_thread_loop;
 struct pw_stream;
 
 // Captures mono float samples from the default input via PipeWire on a
 // dedicated thread and keeps the most recent window available for the UI.
-class AudioCapture {
+class PipeWireAudioCapture final : public IAudioSource {
 public:
-    AudioCapture();
-    ~AudioCapture();
+    PipeWireAudioCapture();
+    ~PipeWireAudioCapture() override;
 
-    bool start();
-    void stop();
-    bool running() const { return running_; }
+    bool start() override;
+    void stop() override;
+    bool running() const override { return running_; }
 
     // Copies the latest `n` samples into dst (zero-padded if fewer arrived).
-    void latest(float* dst, size_t n);
+    void latest(float* dst, size_t n) override;
 
-    uint32_t sampleRate() const { return sampleRate_.load(); }
+    uint32_t sampleRate() const override { return sampleRate_.load(); }
 
     static void onProcess(void* userdata);
     static void onParamChanged(void* userdata, uint32_t id, const struct spa_pod* param);
