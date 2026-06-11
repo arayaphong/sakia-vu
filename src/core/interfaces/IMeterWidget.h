@@ -1,7 +1,9 @@
 #pragma once
 
-#include <gtk/gtk.h>
 #include "../models/MeterState.h"
+
+struct _GtkWidget;
+typedef struct _GtkWidget GtkWidget;
 
 class IMeterWidget {
 public:
