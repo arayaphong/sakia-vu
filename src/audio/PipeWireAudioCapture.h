@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "core/interfaces/IAudioSource.h"
@@ -26,6 +27,11 @@ public:
     void latest(float* dst, size_t n) override;
 
     uint32_t sampleRate() const override { return sampleRate_.load(); }
+    std::vector<AudioDevice> devices() override;
+    void setDeviceTarget(std::string targetObject) override;
+    const std::string& deviceTarget() const override { return targetObject_; }
+    void setCaptureMode(AudioCaptureMode mode) override;
+    AudioCaptureMode captureMode() const override { return captureMode_; }
 
     static void onProcess(void* userdata);
     static void onParamChanged(void* userdata, uint32_t id, const struct spa_pod* param);
@@ -43,4 +49,6 @@ private:
     std::vector<float> ring_;
     size_t writePos_ = 0;
     size_t filled_ = 0;
+    std::string targetObject_;
+    AudioCaptureMode captureMode_ = AudioCaptureMode::Microphone;
 };

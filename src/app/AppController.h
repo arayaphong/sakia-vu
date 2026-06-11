@@ -23,13 +23,26 @@ private:
     static void onToggleStatic(GtkButton* btn, gpointer user_data);
     static void onPeakToggleStatic(GtkToggleButton* btn, gpointer user_data);
     static void onActivateStatic(GtkApplication* gtkApp, gpointer user_data);
+    static void onColorSchemeChangedStatic(GSettings* settings, gchar* key, gpointer user_data);
+    static void onDeviceSelectedStatic(GObject* object, GParamSpec* pspec, gpointer user_data);
+    static void onMicModeSelectedStatic(GtkButton* btn, gpointer user_data);
+    static void onOutputModeSelectedStatic(GtkButton* btn, gpointer user_data);
+    static void onGainChangedStatic(GtkRange* range, gpointer user_data);
 
     gboolean onTick(GtkWidget* widget, GdkFrameClock* clock);
     void onToggle(GtkButton* btn);
     void onPeakToggle(GtkToggleButton* btn);
     void onActivate(GtkApplication* gtkApp);
-
-    void loadCss();
+    void onDeviceSelected();
+    void onGainChanged();
+    void setCaptureMode(AudioCaptureMode mode);
+    bool restartCapture();
+    void refreshDeviceList();
+    void initThemePreferenceSync();
+    void syncThemePreference();
+    void setStatusMarkup(const char* markup);
+    void updateListenButton();
+    void updateModeMenuChecks();
 
     std::unique_ptr<IAudioSource> audioSource_;
     std::unique_ptr<ISpectrumAnalyzer> spectrumAnalyzer_;
@@ -39,8 +52,19 @@ private:
     GtkWidget* toggleBtn = nullptr;
     GtkWidget* peakBtn = nullptr;
     GtkWidget* gainScale = nullptr;
+    GtkWidget* gainValueLabel = nullptr;
     GtkWidget* statusLabel = nullptr;
+    GtkWidget* listenIcon = nullptr;
+    GtkWidget* listenLabel = nullptr;
+    GtkWidget* captureModeMenuBtn = nullptr;
+    GtkWidget* captureModePopover = nullptr;
+    GtkWidget* micModeCheck = nullptr;
+    GtkWidget* outputModeCheck = nullptr;
+    GtkWidget* deviceDropDown = nullptr;
+    GSettings* interfaceSettings = nullptr;
 
     bool peakHold = true;
+    bool updatingDeviceList = false;
+    std::vector<AudioDevice> audioDevices_;
     std::vector<float> frame_;
 };

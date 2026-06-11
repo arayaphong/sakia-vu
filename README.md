@@ -48,7 +48,7 @@ cmake --build build
 ./build/sakia-vu
 ```
 
-Click **Start Mic**, allow microphone access, and use the **Gain** slider to adjust
+Click **Listen**, allow microphone access, and use the **Gain** slider to adjust
 sensitivity. Toggle **Peak Hold** to enable or disable the peak indicators.
 
 ## Offscreen render test

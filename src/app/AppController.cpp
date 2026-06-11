@@ -14,7 +14,11 @@ AppController::AppController(std::unique_ptr<IAudioSource> audioSource,
     frame_.resize(spectrumAnalyzer_->sampleCount());
 }
 
-AppController::~AppController() {}
+AppController::~AppController() {
+    if (interfaceSettings) {
+        g_object_unref(interfaceSettings);
+    }
+}
 
 int AppController::run(int argc, char** argv) {
     GtkApplication* gtkApp = gtk_application_new("dev.arme.SakiaVU", G_APPLICATION_DEFAULT_FLAGS);
@@ -40,6 +44,44 @@ void AppController::onActivateStatic(GtkApplication* gtkApp, gpointer user_data)
     static_cast<AppController*>(user_data)->onActivate(gtkApp);
 }
 
+void AppController::onColorSchemeChangedStatic(GSettings*, gchar*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->syncThemePreference();
+}
+
+void AppController::onDeviceSelectedStatic(GObject*, GParamSpec*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onDeviceSelected();
+}
+
+void AppController::onMicModeSelectedStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->setCaptureMode(AudioCaptureMode::Microphone);
+}
+
+void AppController::onOutputModeSelectedStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->setCaptureMode(AudioCaptureMode::Output);
+}
+
+void AppController::onGainChangedStatic(GtkRange*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onGainChanged();
+}
+
+void AppController::setStatusMarkup(const char* markup) {
+    gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
+}
+
+void AppController::updateListenButton() {
+    const char* iconName = audioSource_->captureMode() == AudioCaptureMode::Output
+                               ? "audio-speakers-symbolic"
+                               : "audio-input-microphone-symbolic";
+    gtk_image_set_from_icon_name(GTK_IMAGE(listenIcon), iconName);
+    gtk_label_set_text(GTK_LABEL(listenLabel), audioSource_->running() ? "Stop" : "Listen");
+}
+
+void AppController::updateModeMenuChecks() {
+    bool outputMode = audioSource_->captureMode() == AudioCaptureMode::Output;
+    gtk_widget_set_opacity(micModeCheck, outputMode ? 0.0 : 1.0);
+    gtk_widget_set_opacity(outputModeCheck, outputMode ? 1.0 : 0.0);
+}
+
 gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock*) {
     if (audioSource_->running()) {
         spectrumAnalyzer_->setSampleRate(audioSource_->sampleRate());
@@ -60,22 +102,18 @@ void AppController::onToggle(GtkButton* btn) {
     if (audioSource_->running()) {
         audioSource_->stop();
         spectrumAnalyzer_->reset();
-        gtk_button_set_label(btn, "Start Mic");
-        gtk_widget_remove_css_class(GTK_WIDGET(btn), "on");
-        gtk_label_set_text(GTK_LABEL(statusLabel), "STOPPED");
-        gtk_widget_remove_css_class(statusLabel, "live");
+        updateListenButton();
+        setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
         
         MeterState state = spectrumAnalyzer_->getState();
         state.peakHoldEnabled = peakHold;
         meter_->updateState(state);
         gtk_widget_queue_draw(meter_->widget());
     } else if (audioSource_->start()) {
-        gtk_button_set_label(btn, "Stop");
-        gtk_widget_add_css_class(GTK_WIDGET(btn), "on");
-        gtk_label_set_text(GTK_LABEL(statusLabel), "LIVE");
-        gtk_widget_add_css_class(statusLabel, "live");
+        updateListenButton();
+        setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
     } else {
-        gtk_label_set_text(GTK_LABEL(statusLabel), "MIC ERROR");
+        setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
     }
 }
 
@@ -84,64 +122,141 @@ void AppController::onPeakToggle(GtkToggleButton* btn) {
     if (!peakHold) spectrumAnalyzer_->resetPeaks();
 }
 
-void AppController::loadCss() {
-    static const char* css = R"(
-        window { background: #0b0d10; }
-        .console { background: #10141a; }
-        .screen-frame {
-            background: #070a0d;
-            border: 1px solid #000000;
-            border-radius: 12px;
-            padding: 10px;
+void AppController::onDeviceSelected() {
+    if (updatingDeviceList || !deviceDropDown) {
+        return;
+    }
+
+    guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(deviceDropDown));
+    if (selected == GTK_INVALID_LIST_POSITION || selected >= audioDevices_.size()) {
+        return;
+    }
+
+    audioSource_->setDeviceTarget(audioDevices_[selected].targetObject);
+    if (!audioSource_->running()) {
+        return;
+    }
+
+    restartCapture();
+}
+
+void AppController::onGainChanged() {
+    gchar* text = g_strdup_printf("%.1fx", gtk_range_get_value(GTK_RANGE(gainScale)));
+    gtk_label_set_text(GTK_LABEL(gainValueLabel), text);
+    g_free(text);
+}
+
+void AppController::setCaptureMode(AudioCaptureMode mode) {
+    if (audioSource_->captureMode() == mode) {
+        gtk_popover_popdown(GTK_POPOVER(captureModePopover));
+        return;
+    }
+
+    audioSource_->setCaptureMode(mode);
+    audioSource_->setDeviceTarget("");
+    refreshDeviceList();
+    updateListenButton();
+    updateModeMenuChecks();
+    gtk_popover_popdown(GTK_POPOVER(captureModePopover));
+
+    if (audioSource_->running()) {
+        restartCapture();
+    }
+}
+
+bool AppController::restartCapture() {
+    audioSource_->stop();
+    spectrumAnalyzer_->reset();
+    if (audioSource_->start()) {
+        updateListenButton();
+        setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
+        return true;
+    } else {
+        updateListenButton();
+        setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
+        return false;
+    }
+}
+
+void AppController::refreshDeviceList() {
+    audioDevices_.clear();
+    bool outputMode = audioSource_->captureMode() == AudioCaptureMode::Output;
+    audioDevices_.push_back({"", outputMode ? "Default output" : "Default input"});
+
+    std::vector<AudioDevice> devices = audioSource_->devices();
+    audioDevices_.insert(audioDevices_.end(), devices.begin(), devices.end());
+
+    GtkStringList* model = gtk_string_list_new(nullptr);
+    for (const AudioDevice& device : audioDevices_) {
+        gtk_string_list_append(model, device.displayName.c_str());
+    }
+
+    updatingDeviceList = true;
+    gtk_drop_down_set_model(GTK_DROP_DOWN(deviceDropDown), G_LIST_MODEL(model));
+    g_object_unref(model);
+
+    guint selected = 0;
+    const std::string& target = audioSource_->deviceTarget();
+    for (guint i = 0; i < audioDevices_.size(); ++i) {
+        if (audioDevices_[i].targetObject == target) {
+            selected = i;
+            break;
         }
-        .title-label {
-            font-family: monospace;
-            font-size: 13px;
-            letter-spacing: 3px;
-            color: #6b7682;
-        }
-        .status-label {
-            font-family: monospace;
-            font-size: 11px;
-            letter-spacing: 2px;
-            color: #6b7682;
-        }
-        .status-label.live { color: #ff4d52; }
-        button {
-            font-family: monospace;
-            font-size: 12px;
-            color: #e8edf2;
-            background: #1c2228;
-            border: 1px solid #272d35;
-            border-radius: 9px;
-        }
-        button.on, button:checked {
-            color: #08110b;
-            background: #2bc466;
-            border-color: #2bc466;
-        }
-        scale trough { background: #2a3138; }
-        label { color: #6b7682; font-family: monospace; font-size: 11px; }
-    )";
-    GtkCssProvider* provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-                                               GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+    }
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(deviceDropDown), selected);
+    updatingDeviceList = false;
+}
+
+void AppController::initThemePreferenceSync() {
+    if (interfaceSettings) {
+        syncThemePreference();
+        return;
+    }
+
+    GSettingsSchemaSource* source = g_settings_schema_source_get_default();
+    if (!source) {
+        return;
+    }
+
+    GSettingsSchema* schema =
+        g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
+    if (!schema) {
+        return;
+    }
+
+    bool hasColorScheme = g_settings_schema_has_key(schema, "color-scheme");
+    g_settings_schema_unref(schema);
+    if (!hasColorScheme) {
+        return;
+    }
+
+    interfaceSettings = g_settings_new("org.gnome.desktop.interface");
+    syncThemePreference();
+    g_signal_connect(interfaceSettings, "changed::color-scheme",
+                     G_CALLBACK(onColorSchemeChangedStatic), this);
+}
+
+void AppController::syncThemePreference() {
+    if (!interfaceSettings) {
+        return;
+    }
+
+    gchar* colorScheme = g_settings_get_string(interfaceSettings, "color-scheme");
+    gboolean prefersDark = g_strcmp0(colorScheme, "prefer-dark") == 0;
+    g_free(colorScheme);
+
+    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+                 prefersDark, nullptr);
 }
 
 void AppController::onActivate(GtkApplication* gtkApp) {
-    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
-                 TRUE, nullptr);
-    loadCss();
+    initThemePreferenceSync();
 
     GtkWidget* window = gtk_application_window_new(gtkApp);
     gtk_window_set_title(GTK_WINDOW(window), "SakiaVU");
     gtk_window_set_default_size(GTK_WINDOW(window), 900, 460);
 
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_add_css_class(vbox, "console");
     gtk_widget_set_margin_top(vbox, 16);
     gtk_widget_set_margin_bottom(vbox, 14);
     gtk_widget_set_margin_start(vbox, 18);
@@ -150,11 +265,10 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Header: title + status.
     GtkWidget* head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* title = gtk_label_new("SPECTRUM - 16-BAND METER");
-    gtk_widget_add_css_class(title, "title-label");
     gtk_widget_set_hexpand(title, TRUE);
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    statusLabel = gtk_label_new("STOPPED");
-    gtk_widget_add_css_class(statusLabel, "status-label");
+    statusLabel = gtk_label_new(nullptr);
+    setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
     gtk_box_append(GTK_BOX(head), title);
     gtk_box_append(GTK_BOX(head), statusLabel);
     gtk_box_append(GTK_BOX(vbox), head);
@@ -162,24 +276,75 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Meter screen.
     meter_ = meterWidgetFactory_->create();
     GtkWidget* screen = gtk_frame_new(nullptr);
-    gtk_widget_add_css_class(screen, "screen-frame");
     gtk_frame_set_child(GTK_FRAME(screen), meter_->widget());
     gtk_box_append(GTK_BOX(vbox), screen);
 
     // Controls: start/stop, gain, peak hold.
     GtkWidget* controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
 
-    toggleBtn = gtk_button_new_with_label("Start Mic");
+    GtkWidget* captureGroup = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(captureGroup, "linked");
+
+    toggleBtn = gtk_button_new();
+    GtkWidget* listenContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    listenIcon = gtk_image_new();
+    listenLabel = gtk_label_new(nullptr);
+    gtk_box_append(GTK_BOX(listenContent), listenIcon);
+    gtk_box_append(GTK_BOX(listenContent), listenLabel);
+    gtk_button_set_child(GTK_BUTTON(toggleBtn), listenContent);
+    updateListenButton();
     g_signal_connect(toggleBtn, "clicked", G_CALLBACK(onToggleStatic), this);
-    gtk_box_append(GTK_BOX(controls), toggleBtn);
+    gtk_box_append(GTK_BOX(captureGroup), toggleBtn);
+
+    captureModeMenuBtn = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(captureModeMenuBtn), "pan-down-symbolic");
+    gtk_widget_set_tooltip_text(captureModeMenuBtn, "Choose capture mode");
+
+    captureModePopover = gtk_popover_new();
+    GtkWidget* modeBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget* micModeBtn = gtk_button_new();
+    GtkWidget* micModeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    micModeCheck = gtk_image_new_from_icon_name("object-select-symbolic");
+    gtk_box_append(GTK_BOX(micModeRow), micModeCheck);
+    gtk_box_append(GTK_BOX(micModeRow), gtk_label_new("Mic"));
+    gtk_button_set_child(GTK_BUTTON(micModeBtn), micModeRow);
+
+    GtkWidget* outputModeBtn = gtk_button_new();
+    GtkWidget* outputModeRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    outputModeCheck = gtk_image_new_from_icon_name("object-select-symbolic");
+    gtk_box_append(GTK_BOX(outputModeRow), outputModeCheck);
+    gtk_box_append(GTK_BOX(outputModeRow), gtk_label_new("Output"));
+    gtk_button_set_child(GTK_BUTTON(outputModeBtn), outputModeRow);
+    updateModeMenuChecks();
+
+    g_signal_connect(micModeBtn, "clicked", G_CALLBACK(onMicModeSelectedStatic), this);
+    g_signal_connect(outputModeBtn, "clicked", G_CALLBACK(onOutputModeSelectedStatic), this);
+    gtk_box_append(GTK_BOX(modeBox), micModeBtn);
+    gtk_box_append(GTK_BOX(modeBox), outputModeBtn);
+    gtk_popover_set_child(GTK_POPOVER(captureModePopover), modeBox);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(captureModeMenuBtn), captureModePopover);
+    gtk_box_append(GTK_BOX(captureGroup), captureModeMenuBtn);
+    gtk_box_append(GTK_BOX(controls), captureGroup);
+
+    deviceDropDown = gtk_drop_down_new(nullptr, nullptr);
+    gtk_widget_set_hexpand(deviceDropDown, TRUE);
+    g_signal_connect(deviceDropDown, "notify::selected", G_CALLBACK(onDeviceSelectedStatic), this);
+    gtk_box_append(GTK_BOX(controls), deviceDropDown);
+    refreshDeviceList();
 
     GtkWidget* gainLabel = gtk_label_new("GAIN");
     gtk_box_append(GTK_BOX(controls), gainLabel);
 
-    gainScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.5, 6.0, 0.1);
-    gtk_range_set_value(GTK_RANGE(gainScale), 1.8);
-    gtk_widget_set_hexpand(gainScale, TRUE);
+    gainScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.1, 1.5, 0.1);
+    gtk_range_set_value(GTK_RANGE(gainScale), 1.0);
+    gtk_widget_set_size_request(gainScale, 180, -1);
+    g_signal_connect(gainScale, "value-changed", G_CALLBACK(onGainChangedStatic), this);
     gtk_box_append(GTK_BOX(controls), gainScale);
+
+    gainValueLabel = gtk_label_new(nullptr);
+    gtk_widget_set_size_request(gainValueLabel, 42, -1);
+    onGainChanged();
+    gtk_box_append(GTK_BOX(controls), gainValueLabel);
 
     peakBtn = gtk_toggle_button_new_with_label("Peak Hold");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(peakBtn), TRUE);

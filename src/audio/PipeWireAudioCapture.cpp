@@ -4,6 +4,8 @@
 #include <spa/param/audio/format-utils.h>
 
 #include <cstring>
+#include <string>
+#include <utility>
 
 namespace {
 constexpr size_t kRingSize = 16384; // > FFT size, ~340 ms at 48 kHz
@@ -12,6 +14,75 @@ const pw_stream_events kStreamEvents = {
     .version = PW_VERSION_STREAM_EVENTS,
     .param_changed = PipeWireAudioCapture::onParamChanged,
     .process = PipeWireAudioCapture::onProcess,
+};
+
+struct DeviceEnumeration {
+    pw_thread_loop* loop = nullptr;
+    AudioCaptureMode mode = AudioCaptureMode::Microphone;
+    std::vector<AudioDevice> devices;
+    int pendingSeq = 0;
+    bool done = false;
+};
+
+const char* lookupProp(const spa_dict* props, const char* key) {
+    return props ? spa_dict_lookup(props, key) : nullptr;
+}
+
+std::string firstNonEmpty(std::initializer_list<const char*> values) {
+    for (const char* value : values) {
+        if (value && value[0] != '\0') {
+            return value;
+        }
+    }
+    return {};
+}
+
+void onRegistryGlobal(void* data, uint32_t id, uint32_t, const char* type, uint32_t,
+                      const spa_dict* props) {
+    if (std::strcmp(type, PW_TYPE_INTERFACE_Node) != 0) {
+        return;
+    }
+
+    const char* mediaClass = lookupProp(props, PW_KEY_MEDIA_CLASS);
+    auto* state = static_cast<DeviceEnumeration*>(data);
+    const char* expectedClass =
+        state->mode == AudioCaptureMode::Output ? "Audio/Sink" : "Audio/Source";
+    if (!mediaClass || std::strcmp(mediaClass, expectedClass) != 0) {
+        return;
+    }
+
+    std::string targetObject =
+        firstNonEmpty({lookupProp(props, PW_KEY_OBJECT_SERIAL), lookupProp(props, PW_KEY_NODE_NAME)});
+    if (targetObject.empty()) {
+        targetObject = std::to_string(id);
+    }
+
+    std::string displayName = firstNonEmpty({lookupProp(props, PW_KEY_NODE_DESCRIPTION),
+                                             lookupProp(props, PW_KEY_NODE_NICK),
+                                             lookupProp(props, PW_KEY_NODE_NAME)});
+    if (displayName.empty()) {
+        displayName = "Input " + std::to_string(id);
+    }
+
+    state->devices.push_back({std::move(targetObject), std::move(displayName)});
+}
+
+void onCoreDone(void* data, uint32_t, int seq) {
+    auto* state = static_cast<DeviceEnumeration*>(data);
+    if (seq == state->pendingSeq) {
+        state->done = true;
+        pw_thread_loop_signal(state->loop, false);
+    }
+}
+
+const pw_registry_events kRegistryEvents = {
+    .version = PW_VERSION_REGISTRY_EVENTS,
+    .global = onRegistryGlobal,
+};
+
+const pw_core_events kCoreEvents = {
+    .version = PW_VERSION_CORE_EVENTS,
+    .done = onCoreDone,
 };
 } // namespace
 
@@ -36,6 +107,12 @@ bool PipeWireAudioCapture::start() {
         PW_KEY_MEDIA_ROLE, "Music",
         PW_KEY_APP_NAME, "SakiaVU",
         nullptr);
+    if (captureMode_ == AudioCaptureMode::Output) {
+        pw_properties_set(props, PW_KEY_STREAM_CAPTURE_SINK, "true");
+    }
+    if (!targetObject_.empty()) {
+        pw_properties_set(props, PW_KEY_TARGET_OBJECT, targetObject_.c_str());
+    }
 
     stream_ = pw_stream_new_simple(pw_thread_loop_get_loop(loop_), "SakiaVU capture",
                                    props, &kStreamEvents, this);
@@ -95,6 +172,79 @@ void PipeWireAudioCapture::latest(float* dst, size_t n) {
     size_t first = std::min(avail, kRingSize - start);
     std::memcpy(out, ring_.data() + start, first * sizeof(float));
     std::memcpy(out + first, ring_.data(), (avail - first) * sizeof(float));
+}
+
+std::vector<AudioDevice> PipeWireAudioCapture::devices() {
+    DeviceEnumeration state;
+    state.mode = captureMode_;
+    state.loop = pw_thread_loop_new("sakia-devices", nullptr);
+    if (!state.loop) {
+        return {};
+    }
+
+    pw_thread_loop_lock(state.loop);
+    pw_context* context = pw_context_new(pw_thread_loop_get_loop(state.loop), nullptr, 0);
+    if (!context) {
+        pw_thread_loop_unlock(state.loop);
+        pw_thread_loop_destroy(state.loop);
+        return {};
+    }
+
+    pw_core* core = pw_context_connect(context, nullptr, 0);
+    if (!core) {
+        pw_context_destroy(context);
+        pw_thread_loop_unlock(state.loop);
+        pw_thread_loop_destroy(state.loop);
+        return {};
+    }
+
+    spa_hook coreListener{};
+    pw_core_add_listener(core, &coreListener, &kCoreEvents, &state);
+
+    pw_registry* registry = pw_core_get_registry(core, PW_VERSION_REGISTRY, 0);
+    if (!registry) {
+        spa_hook_remove(&coreListener);
+        pw_core_disconnect(core);
+        pw_context_destroy(context);
+        pw_thread_loop_unlock(state.loop);
+        pw_thread_loop_destroy(state.loop);
+        return {};
+    }
+
+    spa_hook registryListener{};
+    pw_registry_add_listener(registry, &registryListener, &kRegistryEvents, &state);
+
+    bool started = false;
+    if (pw_thread_loop_start(state.loop) >= 0) {
+        started = true;
+        state.pendingSeq = pw_core_sync(core, PW_ID_CORE, 0);
+        while (!state.done) {
+            pw_thread_loop_wait(state.loop);
+        }
+    }
+
+    if (started) {
+        pw_thread_loop_unlock(state.loop);
+        pw_thread_loop_stop(state.loop);
+        pw_thread_loop_lock(state.loop);
+    }
+
+    spa_hook_remove(&registryListener);
+    pw_proxy_destroy(reinterpret_cast<pw_proxy*>(registry));
+    spa_hook_remove(&coreListener);
+    pw_core_disconnect(core);
+    pw_context_destroy(context);
+    pw_thread_loop_unlock(state.loop);
+    pw_thread_loop_destroy(state.loop);
+    return state.devices;
+}
+
+void PipeWireAudioCapture::setDeviceTarget(std::string targetObject) {
+    targetObject_ = std::move(targetObject);
+}
+
+void PipeWireAudioCapture::setCaptureMode(AudioCaptureMode mode) {
+    captureMode_ = mode;
 }
 
 void PipeWireAudioCapture::push(const float* samples, size_t n) {
