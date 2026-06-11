@@ -1,4 +1,4 @@
-#include "SpectrumAnalyzer.h"
+#include "FftwSpectrumAnalyzer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +10,7 @@ constexpr float kMaxDb = -30.0f;
 constexpr float kSmoothing = 0.6f; // WebAudio smoothingTimeConstant
 } // namespace
 
-SpectrumAnalyzer::SpectrumAnalyzer() {
+FftwSpectrumAnalyzer::FftwSpectrumAnalyzer() {
     in_ = fftwf_alloc_real(kFftSize);
     out_ = fftwf_alloc_complex(kFftSize / 2 + 1);
     plan_ = fftwf_plan_dft_r2c_1d(kFftSize, in_, out_, FFTW_MEASURE);
@@ -25,19 +25,19 @@ SpectrumAnalyzer::SpectrumAnalyzer() {
     buildBandEdges();
 }
 
-SpectrumAnalyzer::~SpectrumAnalyzer() {
+FftwSpectrumAnalyzer::~FftwSpectrumAnalyzer() {
     fftwf_destroy_plan(plan_);
     fftwf_free(in_);
     fftwf_free(out_);
 }
 
-void SpectrumAnalyzer::setSampleRate(uint32_t rate) {
+void FftwSpectrumAnalyzer::setSampleRate(uint32_t rate) {
     if (rate == sampleRate_ || rate == 0) return;
     sampleRate_ = rate;
     buildBandEdges();
 }
 
-void SpectrumAnalyzer::buildBandEdges() {
+void FftwSpectrumAnalyzer::buildBandEdges() {
     const int binCount = kFftSize / 2;
     const float hzPerBin = (sampleRate_ / 2.0f) / binCount;
     for (int i = 0; i <= kNumBands; i++) {
@@ -57,7 +57,7 @@ void SpectrumAnalyzer::buildBandEdges() {
     }
 }
 
-void SpectrumAnalyzer::update(const float* samples, float gain, bool peakHold) {
+void FftwSpectrumAnalyzer::update(const float* samples, float gain, bool peakHold) {
     for (int i = 0; i < kFftSize; i++)
         in_[i] = samples[i] * window_[i];
     fftwf_execute(plan_);
@@ -97,13 +97,21 @@ void SpectrumAnalyzer::update(const float* samples, float gain, bool peakHold) {
     }
 }
 
-void SpectrumAnalyzer::reset() {
+void FftwSpectrumAnalyzer::reset() {
     levels_.fill(0.0f);
     resetPeaks();
     std::fill(smoothMag_.begin(), smoothMag_.end(), 0.0f);
 }
 
-void SpectrumAnalyzer::resetPeaks() {
+void FftwSpectrumAnalyzer::resetPeaks() {
     peaks_.fill(0.0f);
     peakVel_.fill(0.0f);
+}
+
+MeterState FftwSpectrumAnalyzer::getState() const {
+    MeterState state;
+    state.levels = levels_;
+    state.peaks = peaks_;
+    state.labels = labels_;
+    return state;
 }

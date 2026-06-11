@@ -1,11 +1,10 @@
-#include "MeterWidget.h"
+#include "GtkMeterWidget.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPixmap.h"
 
-MeterWidget::MeterWidget(const SpectrumAnalyzer& analyzer, const bool& peakHold)
-    : analyzer_(analyzer), peakHold_(peakHold) {
+GtkMeterWidget::GtkMeterWidget() {
     area_ = gtk_drawing_area_new();
     gtk_widget_set_hexpand(area_, TRUE);
     gtk_widget_set_vexpand(area_, TRUE);
@@ -14,12 +13,12 @@ MeterWidget::MeterWidget(const SpectrumAnalyzer& analyzer, const bool& peakHold)
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area_), drawFunc, this, nullptr);
 }
 
-void MeterWidget::drawFunc(GtkDrawingArea* area, cairo_t* cr, int width, int height,
-                           gpointer user_data) {
-    static_cast<MeterWidget*>(user_data)->render(cr, width, height);
+void GtkMeterWidget::drawFunc(GtkDrawingArea* area, cairo_t* cr, int width, int height,
+                              gpointer user_data) {
+    static_cast<GtkMeterWidget*>(user_data)->render(cr, width, height);
 }
 
-void MeterWidget::render(cairo_t* cr, int width, int height) {
+void GtkMeterWidget::render(cairo_t* cr, int width, int height) {
     int scale = gtk_widget_get_scale_factor(area_);
     int pw = width * scale, ph = height * scale;
 
@@ -29,7 +28,7 @@ void MeterWidget::render(cairo_t* cr, int width, int height) {
         if (!surface_) return;
     }
 
-    renderer_.draw(surface_->getCanvas(), pw, ph, analyzer_, peakHold_);
+    renderer_.draw(surface_->getCanvas(), pw, ph, state_);
 
     SkPixmap pixmap;
     if (!surface_->peekPixels(&pixmap)) return;
@@ -43,4 +42,12 @@ void MeterWidget::render(cairo_t* cr, int width, int height) {
     cairo_paint(cr);
     cairo_restore(cr);
     cairo_surface_destroy(cs);
+}
+
+void GtkMeterWidget::updateState(const MeterState& state) {
+    state_ = state;
+}
+
+std::unique_ptr<IMeterWidget> GtkMeterWidgetFactory::create() const {
+    return std::make_unique<GtkMeterWidget>();
 }

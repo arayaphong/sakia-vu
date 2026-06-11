@@ -10,6 +10,10 @@ Planned work and known constraints are tracked in [docs/ROADMAP.md](docs/ROADMAP
 read its "Known constraints" section before touching the analyzer ballistics, font
 loading, or pixel-format code.
 
+Code structure and dependency-injection boundaries are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read it before moving files or adding
+new concrete services.
+
 Features:
 - 16 frequency bands, logarithmic scale 30 Hz → 16 kHz
 - 28 LED segments per band, color-coded green/amber/red by level (0–60% green, 60–82% amber, >82% red)
@@ -53,21 +57,24 @@ missing). It is built against **libstdc++**, so plain g++ links fine. Its bundle
 
 **Gotcha:** do NOT use `SkFontMgr_New_FontConfig` from this prebuilt — it hangs for
 minutes enumerating family names on hosts with aliasing-heavy fontconfig setups (this
-machine has one). `MeterRenderer` loads a known mono TTF directly via
+machine has one). `SkiaMeterRenderer` loads a known mono TTF directly via
 `SkFontMgr_New_Custom_Empty()->makeFromFile()` instead.
 
 ## Architecture
 
 ```
-src/main.cpp          — GtkApplication, window, controls (start/stop, gain, peak hold), tick callback
-src/AudioCapture      — PipeWire capture thread (mono F32 @48k requested); mutex-guarded ring buffer
-src/SpectrumAnalyzer  — FFTW r2c 4096, Blackman window, WebAudio-style dB mapping + ballistics
-src/MeterRenderer     — Pure Skia drawing at logical 1640×560, scaled to canvas size
-src/MeterWidget       — GtkDrawingArea host; Skia CPU raster surface blitted to cairo (BGRA≡ARGB32)
+src/app               — Composition root and GtkApplication controller; depends on core interfaces
+src/core/interfaces   — IAudioSource, ISpectrumAnalyzer, IMeterWidget, IMeterWidgetFactory
+src/core/models       — MeterState
+src/audio             — PipeWireAudioCapture and FftwSpectrumAnalyzer implementations
+src/ui                — GtkMeterWidget host and SkiaMeterRenderer drawing implementation
 tools/render_test.cpp — Offscreen smoke test: synthetic tones → analyzer → PNG
 ```
 
-Data flow: `AudioCapture → latest(4096) → SpectrumAnalyzer → levels[16]/peaks[16] → MeterRenderer → SkSurface → cairo`
+Data flow: `IAudioSource → latest(sampleCount) → ISpectrumAnalyzer → MeterState → IMeterWidget → SkiaMeterRenderer → SkSurface → cairo`
+
+Layer rule: app code should receive abstractions through constructors. Concrete
+PipeWire/FFTW/GTK/Skia classes are wired in `src/app/main.cpp`.
 
 Animation runs via `gtk_widget_add_tick_callback` on the meter widget; analyzer ballistics
 are per-frame (matching the HTML's rAF loop), updated only while capture is running.

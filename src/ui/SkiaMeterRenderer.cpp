@@ -1,4 +1,4 @@
-#include "MeterRenderer.h"
+#include "SkiaMeterRenderer.h"
 
 #include "include/core/SkBlurTypes.h"
 #include "include/core/SkFontMgr.h"
@@ -46,13 +46,13 @@ sk_sp<SkTypeface> makeMonoTypeface() {
 }
 } // namespace
 
-MeterRenderer::MeterRenderer() {
+SkiaMeterRenderer::SkiaMeterRenderer() {
     labelFont_ = SkFont(makeMonoTypeface(), 22.0f);
     labelFont_.setEdging(SkFont::Edging::kAntiAlias);
 }
 
-void MeterRenderer::draw(SkCanvas* canvas, int width, int height,
-                         const SpectrumAnalyzer& analyzer, bool peakHold) const {
+void SkiaMeterRenderer::draw(SkCanvas* canvas, int width, int height,
+                             const MeterState& state) const {
     canvas->clear(0xFF070A0D); // .screen background
 
     // Scale the logical 1640x560 layout to fill the canvas.
@@ -63,15 +63,15 @@ void MeterRenderer::draw(SkCanvas* canvas, int width, int height,
     constexpr float padX = 24, padTop = 14, padBottom = 46;
     constexpr float usableW = W - padX * 2;
     constexpr float usableH = H - padTop - padBottom;
-    constexpr int bands = SpectrumAnalyzer::kNumBands;
+    constexpr int bands = MeterState::kNumBands;
     constexpr float colW = usableW / bands;
     constexpr float barW = colW * 0.62f;
     constexpr float gapSeg = 4;
     constexpr float segH = (usableH - (kSegments - 1) * gapSeg) / kSegments;
 
-    const auto& levels = analyzer.levels();
-    const auto& peaks = analyzer.peaks();
-    const auto& labels = analyzer.labels();
+    const auto& levels = state.levels;
+    const auto& peaks = state.peaks;
+    const auto& labels = state.labels;
 
     SkPaint fill;
     fill.setAntiAlias(true);
@@ -88,7 +88,7 @@ void MeterRenderer::draw(SkCanvas* canvas, int width, int height,
             float ratio = static_cast<float>(s + 1) / kSegments;
             float y = padTop + (kSegments - 1 - s) * (segH + gapSeg);
             bool isLit = s < lit;
-            bool isPeak = peakHold && s == peakSeg - 1 && peakSeg > 0;
+            bool isPeak = state.peakHoldEnabled && s == peakSeg - 1 && peakSeg > 0;
 
             SkRRect rrect = SkRRect::MakeRectXY(SkRect::MakeXYWH(x, y, barW, segH), 2, 2);
 

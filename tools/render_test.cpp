@@ -11,17 +11,17 @@
 #include "include/core/SkSurface.h"
 #include "include/encode/SkPngEncoder.h"
 
-#include "MeterRenderer.h"
-#include "SpectrumAnalyzer.h"
+#include "audio/FftwSpectrumAnalyzer.h"
+#include "ui/SkiaMeterRenderer.h"
 
 int main(int argc, char** argv) {
     const char* outPath = argc > 1 ? argv[1] : "/tmp/sakia-render.png";
 
-    SpectrumAnalyzer analyzer;
+    FftwSpectrumAnalyzer analyzer;
     analyzer.setSampleRate(48000);
 
     // Mix of tones spread across the bands plus pink-ish noise.
-    constexpr int N = SpectrumAnalyzer::kFftSize;
+    constexpr int N = FftwSpectrumAnalyzer::kFftSize;
     float samples[N];
     const float tones[] = {60, 150, 400, 1000, 2500, 6000, 12000};
     unsigned seed = 1;
@@ -40,8 +40,10 @@ int main(int argc, char** argv) {
 
     sk_sp<SkSurface> surface = SkSurfaces::Raster(
         SkImageInfo::Make(1640, 560, kN32_SkColorType, kPremul_SkAlphaType));
-    MeterRenderer renderer;
-    renderer.draw(surface->getCanvas(), 1640, 560, analyzer, true);
+    SkiaMeterRenderer renderer;
+    MeterState state = analyzer.getState();
+    state.peakHoldEnabled = true;
+    renderer.draw(surface->getCanvas(), 1640, 560, state);
 
     SkPixmap pixmap;
     if (!surface->peekPixels(&pixmap)) {
