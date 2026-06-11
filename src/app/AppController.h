@@ -31,6 +31,7 @@ private:
     void onActivate(GtkApplication* gtkApp);
     void initThemePreferenceSync();
     void syncThemePreference();
+    void setStatusMarkup(const char* markup);
 
     std::unique_ptr<IAudioSource> audioSource_;
     std::unique_ptr<ISpectrumAnalyzer> spectrumAnalyzer_;

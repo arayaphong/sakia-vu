@@ -48,6 +48,10 @@ void AppController::onColorSchemeChangedStatic(GSettings*, gchar*, gpointer user
     static_cast<AppController*>(user_data)->syncThemePreference();
 }
 
+void AppController::setStatusMarkup(const char* markup) {
+    gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
+}
+
 gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock*) {
     if (audioSource_->running()) {
         spectrumAnalyzer_->setSampleRate(audioSource_->sampleRate());
@@ -69,7 +73,7 @@ void AppController::onToggle(GtkButton* btn) {
         audioSource_->stop();
         spectrumAnalyzer_->reset();
         gtk_button_set_label(btn, "Start Mic");
-        gtk_label_set_text(GTK_LABEL(statusLabel), "STOPPED");
+        setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
         
         MeterState state = spectrumAnalyzer_->getState();
         state.peakHoldEnabled = peakHold;
@@ -77,9 +81,9 @@ void AppController::onToggle(GtkButton* btn) {
         gtk_widget_queue_draw(meter_->widget());
     } else if (audioSource_->start()) {
         gtk_button_set_label(btn, "Stop");
-        gtk_label_set_text(GTK_LABEL(statusLabel), "LIVE");
+        setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
     } else {
-        gtk_label_set_text(GTK_LABEL(statusLabel), "MIC ERROR");
+        setStatusMarkup("<span foreground=\"#d97706\">▲ MIC ERROR</span>");
     }
 }
 
@@ -148,7 +152,8 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     GtkWidget* title = gtk_label_new("SPECTRUM - 16-BAND METER");
     gtk_widget_set_hexpand(title, TRUE);
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    statusLabel = gtk_label_new("STOPPED");
+    statusLabel = gtk_label_new(nullptr);
+    setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
     gtk_box_append(GTK_BOX(head), title);
     gtk_box_append(GTK_BOX(head), statusLabel);
     gtk_box_append(GTK_BOX(vbox), head);
