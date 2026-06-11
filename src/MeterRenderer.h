@@ -9,8 +9,8 @@
 
 #include "SpectrumAnalyzer.h"
 
-// Draws the 16-band LED meter onto a Skia canvas, replicating the layout of
-// html-src/vu-meter.html (logical size 1640x560, scaled to the actual canvas).
+// Draws the 16-band LED meter onto a Skia canvas.
+// Logical canvas size is 1640x560, scaled uniformly to the actual widget size.
 class MeterRenderer {
 public:
     static constexpr int kSegments = 28;

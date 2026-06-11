@@ -1,10 +1,9 @@
 # SakiaVU — Future Implementation Roadmap
 
 Status of the codebase as of 2026-06-11: v0.1 works end-to-end — PipeWire mono capture,
-FFTW analysis replicating the HTML reference (`html-src/vu-meter.html`), Skia CPU raster
-rendering inside a GtkDrawingArea, start/stop + gain + peak-hold controls. This document
-lists planned work, roughly in priority order, with notes on where each change lands in
-the current code.
+FFTW 4096-point analysis, Skia CPU raster rendering inside a GtkDrawingArea,
+start/stop + gain + peak-hold controls. This document lists planned work, roughly in
+priority order, with notes on where each change lands in the current code.
 
 ---
 

@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**SakiaVU** — A native 16-band spectrum/VU meter desktop application written in C++ using GTK4 and Skia for rendering. The reference design is in [html-src/vu-meter.html](html-src/vu-meter.html).
+**SakiaVU** — A native 16-band spectrum/VU meter desktop application written in C++ using GTK4 and Skia for rendering.
 
 Planned work and known constraints are tracked in [docs/ROADMAP.md](docs/ROADMAP.md) —
 read its "Known constraints" section before touching the analyzer ballistics, font
 loading, or pixel-format code.
 
-Key features to replicate from the HTML reference:
+Features:
 - 16 frequency bands, logarithmic scale 30 Hz → 16 kHz
 - 28 LED segments per band, color-coded green/amber/red by level (0–60% green, 60–82% amber, >82% red)
 - Peak hold with gravity-fall animation
 - Gain slider (0.5×–6×)
-- Real-time microphone input via PipeWire/ALSA
+- Real-time microphone input via PipeWire
 
 ## Build System
 
