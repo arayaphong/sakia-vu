@@ -9,18 +9,16 @@ priority order, with notes on where each change lands in the current code.
 
 ## v0.2 — Audio robustness & UX
 
-### 1. Input device selection
-Currently `PipeWireAudioCapture::start()` connects with `PW_STREAM_FLAG_AUTOCONNECT`
-to the default source. Add a dropdown (GtkDropDown) listing PipeWire nodes.
+### 1. Input device selection — done
+`AppController` now shows a `GtkDropDown` of PipeWire input sources, with a
+`Default input` option that preserves PipeWire autoconnect behavior.
 
-- Enumerate nodes with `pw_registry` + `PW_TYPE_INTERFACE_Node`, filter
-  `media.class == "Audio/Source"` (and `"Audio/Sink"` for monitor capture — see #2).
-- Pass the chosen node via `PW_KEY_TARGET_OBJECT` in the stream properties.
-- Needs a small `pw_thread_loop`-owned registry listener; deliver node list to the UI
-  thread with `g_idle_add`.
-- Files: `src/audio/PipeWireAudioCapture.{h,cpp}` for enumeration + target selection,
-  `src/core/interfaces/IAudioSource.h` if the app needs a device-selection contract,
-  and `src/app/AppController.{h,cpp}` for dropdown wiring.
+- `IAudioSource` exposes a small `AudioDevice` contract plus selected-target accessors.
+- `PipeWireAudioCapture::devices()` enumerates `PW_TYPE_INTERFACE_Node` entries and
+  filters `media.class == "Audio/Source"`.
+- `PipeWireAudioCapture::start()` passes the selected source through
+  `PW_KEY_TARGET_OBJECT`.
+- Changing the dropdown while running restarts capture against the new source.
 
 ### 2. "What's playing" mode (monitor capture)
 Meter the system output instead of the mic — usually the more interesting use of a

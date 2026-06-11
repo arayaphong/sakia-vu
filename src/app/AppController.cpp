@@ -48,6 +48,10 @@ void AppController::onColorSchemeChangedStatic(GSettings*, gchar*, gpointer user
     static_cast<AppController*>(user_data)->syncThemePreference();
 }
 
+void AppController::onDeviceSelectedStatic(GObject*, GParamSpec*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onDeviceSelected();
+}
+
 void AppController::setStatusMarkup(const char* markup) {
     gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
 }
@@ -72,7 +76,7 @@ void AppController::onToggle(GtkButton* btn) {
     if (audioSource_->running()) {
         audioSource_->stop();
         spectrumAnalyzer_->reset();
-        gtk_button_set_label(btn, "Start Mic");
+        gtk_button_set_label(btn, "Listen");
         setStatusMarkup("<span foreground=\"#d64545\">● STOPPED</span>");
         
         MeterState state = spectrumAnalyzer_->getState();
@@ -90,6 +94,59 @@ void AppController::onToggle(GtkButton* btn) {
 void AppController::onPeakToggle(GtkToggleButton* btn) {
     peakHold = gtk_toggle_button_get_active(btn);
     if (!peakHold) spectrumAnalyzer_->resetPeaks();
+}
+
+void AppController::onDeviceSelected() {
+    if (updatingDeviceList || !deviceDropDown) {
+        return;
+    }
+
+    guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(deviceDropDown));
+    if (selected == GTK_INVALID_LIST_POSITION || selected >= audioDevices_.size()) {
+        return;
+    }
+
+    audioSource_->setDeviceTarget(audioDevices_[selected].targetObject);
+    if (!audioSource_->running()) {
+        return;
+    }
+
+    audioSource_->stop();
+    spectrumAnalyzer_->reset();
+    if (audioSource_->start()) {
+        setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
+    } else {
+        gtk_button_set_label(GTK_BUTTON(toggleBtn), "Listen");
+        setStatusMarkup("<span foreground=\"#d97706\">▲ MIC ERROR</span>");
+    }
+}
+
+void AppController::refreshDeviceList() {
+    audioDevices_.clear();
+    audioDevices_.push_back({"", "Default input"});
+
+    std::vector<AudioDevice> devices = audioSource_->devices();
+    audioDevices_.insert(audioDevices_.end(), devices.begin(), devices.end());
+
+    GtkStringList* model = gtk_string_list_new(nullptr);
+    for (const AudioDevice& device : audioDevices_) {
+        gtk_string_list_append(model, device.displayName.c_str());
+    }
+
+    updatingDeviceList = true;
+    gtk_drop_down_set_model(GTK_DROP_DOWN(deviceDropDown), G_LIST_MODEL(model));
+    g_object_unref(model);
+
+    guint selected = 0;
+    const std::string& target = audioSource_->deviceTarget();
+    for (guint i = 0; i < audioDevices_.size(); ++i) {
+        if (audioDevices_[i].targetObject == target) {
+            selected = i;
+            break;
+        }
+    }
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(deviceDropDown), selected);
+    updatingDeviceList = false;
 }
 
 void AppController::initThemePreferenceSync() {
@@ -167,16 +224,25 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Controls: start/stop, gain, peak hold.
     GtkWidget* controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
 
-    toggleBtn = gtk_button_new_with_label("Start Mic");
+    toggleBtn = gtk_button_new_with_label("Listen");
     g_signal_connect(toggleBtn, "clicked", G_CALLBACK(onToggleStatic), this);
     gtk_box_append(GTK_BOX(controls), toggleBtn);
+
+    GtkWidget* inputLabel = gtk_label_new("Input");
+    gtk_box_append(GTK_BOX(controls), inputLabel);
+
+    deviceDropDown = gtk_drop_down_new(nullptr, nullptr);
+    gtk_widget_set_hexpand(deviceDropDown, TRUE);
+    g_signal_connect(deviceDropDown, "notify::selected", G_CALLBACK(onDeviceSelectedStatic), this);
+    gtk_box_append(GTK_BOX(controls), deviceDropDown);
+    refreshDeviceList();
 
     GtkWidget* gainLabel = gtk_label_new("GAIN");
     gtk_box_append(GTK_BOX(controls), gainLabel);
 
     gainScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.5, 6.0, 0.1);
     gtk_range_set_value(GTK_RANGE(gainScale), 1.8);
-    gtk_widget_set_hexpand(gainScale, TRUE);
+    gtk_widget_set_size_request(gainScale, 180, -1);
     gtk_box_append(GTK_BOX(controls), gainScale);
 
     peakBtn = gtk_toggle_button_new_with_label("Peak Hold");
