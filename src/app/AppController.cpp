@@ -14,7 +14,11 @@ AppController::AppController(std::unique_ptr<IAudioSource> audioSource,
     frame_.resize(spectrumAnalyzer_->sampleCount());
 }
 
-AppController::~AppController() {}
+AppController::~AppController() {
+    if (interfaceSettings) {
+        g_object_unref(interfaceSettings);
+    }
+}
 
 int AppController::run(int argc, char** argv) {
     GtkApplication* gtkApp = gtk_application_new("dev.arme.SakiaVU", G_APPLICATION_DEFAULT_FLAGS);
@@ -40,6 +44,10 @@ void AppController::onActivateStatic(GtkApplication* gtkApp, gpointer user_data)
     static_cast<AppController*>(user_data)->onActivate(gtkApp);
 }
 
+void AppController::onColorSchemeChangedStatic(GSettings*, gchar*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->syncThemePreference();
+}
+
 gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock*) {
     if (audioSource_->running()) {
         spectrumAnalyzer_->setSampleRate(audioSource_->sampleRate());
@@ -61,9 +69,7 @@ void AppController::onToggle(GtkButton* btn) {
         audioSource_->stop();
         spectrumAnalyzer_->reset();
         gtk_button_set_label(btn, "Start Mic");
-        gtk_widget_remove_css_class(GTK_WIDGET(btn), "on");
         gtk_label_set_text(GTK_LABEL(statusLabel), "STOPPED");
-        gtk_widget_remove_css_class(statusLabel, "live");
         
         MeterState state = spectrumAnalyzer_->getState();
         state.peakHoldEnabled = peakHold;
@@ -71,9 +77,7 @@ void AppController::onToggle(GtkButton* btn) {
         gtk_widget_queue_draw(meter_->widget());
     } else if (audioSource_->start()) {
         gtk_button_set_label(btn, "Stop");
-        gtk_widget_add_css_class(GTK_WIDGET(btn), "on");
         gtk_label_set_text(GTK_LABEL(statusLabel), "LIVE");
-        gtk_widget_add_css_class(statusLabel, "live");
     } else {
         gtk_label_set_text(GTK_LABEL(statusLabel), "MIC ERROR");
     }
@@ -84,64 +88,56 @@ void AppController::onPeakToggle(GtkToggleButton* btn) {
     if (!peakHold) spectrumAnalyzer_->resetPeaks();
 }
 
-void AppController::loadCss() {
-    static const char* css = R"(
-        window { background: #0b0d10; }
-        .console { background: #10141a; }
-        .screen-frame {
-            background: #070a0d;
-            border: 1px solid #000000;
-            border-radius: 12px;
-            padding: 10px;
-        }
-        .title-label {
-            font-family: monospace;
-            font-size: 13px;
-            letter-spacing: 3px;
-            color: #6b7682;
-        }
-        .status-label {
-            font-family: monospace;
-            font-size: 11px;
-            letter-spacing: 2px;
-            color: #6b7682;
-        }
-        .status-label.live { color: #ff4d52; }
-        button {
-            font-family: monospace;
-            font-size: 12px;
-            color: #e8edf2;
-            background: #1c2228;
-            border: 1px solid #272d35;
-            border-radius: 9px;
-        }
-        button.on, button:checked {
-            color: #08110b;
-            background: #2bc466;
-            border-color: #2bc466;
-        }
-        scale trough { background: #2a3138; }
-        label { color: #6b7682; font-family: monospace; font-size: 11px; }
-    )";
-    GtkCssProvider* provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-                                               GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+void AppController::initThemePreferenceSync() {
+    if (interfaceSettings) {
+        syncThemePreference();
+        return;
+    }
+
+    GSettingsSchemaSource* source = g_settings_schema_source_get_default();
+    if (!source) {
+        return;
+    }
+
+    GSettingsSchema* schema =
+        g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
+    if (!schema) {
+        return;
+    }
+
+    bool hasColorScheme = g_settings_schema_has_key(schema, "color-scheme");
+    g_settings_schema_unref(schema);
+    if (!hasColorScheme) {
+        return;
+    }
+
+    interfaceSettings = g_settings_new("org.gnome.desktop.interface");
+    syncThemePreference();
+    g_signal_connect(interfaceSettings, "changed::color-scheme",
+                     G_CALLBACK(onColorSchemeChangedStatic), this);
+}
+
+void AppController::syncThemePreference() {
+    if (!interfaceSettings) {
+        return;
+    }
+
+    gchar* colorScheme = g_settings_get_string(interfaceSettings, "color-scheme");
+    gboolean prefersDark = g_strcmp0(colorScheme, "prefer-dark") == 0;
+    g_free(colorScheme);
+
+    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+                 prefersDark, nullptr);
 }
 
 void AppController::onActivate(GtkApplication* gtkApp) {
-    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
-                 TRUE, nullptr);
-    loadCss();
+    initThemePreferenceSync();
 
     GtkWidget* window = gtk_application_window_new(gtkApp);
     gtk_window_set_title(GTK_WINDOW(window), "SakiaVU");
     gtk_window_set_default_size(GTK_WINDOW(window), 900, 460);
 
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_add_css_class(vbox, "console");
     gtk_widget_set_margin_top(vbox, 16);
     gtk_widget_set_margin_bottom(vbox, 14);
     gtk_widget_set_margin_start(vbox, 18);
@@ -150,11 +146,9 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Header: title + status.
     GtkWidget* head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* title = gtk_label_new("SPECTRUM - 16-BAND METER");
-    gtk_widget_add_css_class(title, "title-label");
     gtk_widget_set_hexpand(title, TRUE);
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     statusLabel = gtk_label_new("STOPPED");
-    gtk_widget_add_css_class(statusLabel, "status-label");
     gtk_box_append(GTK_BOX(head), title);
     gtk_box_append(GTK_BOX(head), statusLabel);
     gtk_box_append(GTK_BOX(vbox), head);
@@ -162,7 +156,6 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     // Meter screen.
     meter_ = meterWidgetFactory_->create();
     GtkWidget* screen = gtk_frame_new(nullptr);
-    gtk_widget_add_css_class(screen, "screen-frame");
     gtk_frame_set_child(GTK_FRAME(screen), meter_->widget());
     gtk_box_append(GTK_BOX(vbox), screen);
 

@@ -23,13 +23,14 @@ private:
     static void onToggleStatic(GtkButton* btn, gpointer user_data);
     static void onPeakToggleStatic(GtkToggleButton* btn, gpointer user_data);
     static void onActivateStatic(GtkApplication* gtkApp, gpointer user_data);
+    static void onColorSchemeChangedStatic(GSettings* settings, gchar* key, gpointer user_data);
 
     gboolean onTick(GtkWidget* widget, GdkFrameClock* clock);
     void onToggle(GtkButton* btn);
     void onPeakToggle(GtkToggleButton* btn);
     void onActivate(GtkApplication* gtkApp);
-
-    void loadCss();
+    void initThemePreferenceSync();
+    void syncThemePreference();
 
     std::unique_ptr<IAudioSource> audioSource_;
     std::unique_ptr<ISpectrumAnalyzer> spectrumAnalyzer_;
@@ -40,6 +41,7 @@ private:
     GtkWidget* peakBtn = nullptr;
     GtkWidget* gainScale = nullptr;
     GtkWidget* statusLabel = nullptr;
+    GSettings* interfaceSettings = nullptr;
 
     bool peakHold = true;
     std::vector<float> frame_;
