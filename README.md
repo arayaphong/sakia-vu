@@ -1,0 +1,85 @@
+# SakiaVU
+
+A real-time 16-band spectrum / VU meter for Linux desktop, written in C++ with GTK4 and Skia.
+
+![Render test output](docs/render-sample.png)
+
+---
+
+## Features
+
+- 16 frequency bands — logarithmic scale, 30 Hz → 16 kHz
+- 28 LED segments per band, colour-coded green / amber / red
+- Peak hold with gravity-fall animation
+- Adjustable input gain (0.5× – 6×)
+- Real-time microphone capture via **PipeWire**
+
+## Requirements
+
+| Dependency | Package (Arch / CachyOS) |
+|---|---|
+| GTK 4 | `gtk4` |
+| PipeWire | `pipewire pipewire-alsa` |
+| FFTW3 (float) | `fftw` |
+| CMake ≥ 3.25 | `cmake` |
+| Ninja | `ninja` |
+| Skia m148 (prebuilt) | see below |
+
+### Fetching the prebuilt Skia
+
+Skia is vendored as a prebuilt static library (not committed to this repo). Download once:
+
+```bash
+mkdir -p third_party && cd third_party
+curl -L -o skia.zip https://github.com/aseprite/skia/releases/download/m148-a29c8d23be/Skia-Linux-Release-x64.zip
+mkdir skia && cd skia && bsdtar xf ../skia.zip && rm ../skia.zip
+```
+
+## Building
+
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+## Running
+
+```bash
+./build/sakia-vu
+```
+
+Click **Start Mic**, allow microphone access, and use the **Gain** slider to adjust
+sensitivity. Toggle **Peak Hold** to enable or disable the peak indicators.
+
+## Offscreen render test
+
+Builds and renders a synthetic multi-tone signal to a PNG — no display or microphone required:
+
+```bash
+cmake --build build --target render-test
+./build/render-test /tmp/sakia-render.png
+```
+
+## Project layout
+
+```
+src/
+  AudioCapture.{h,cpp}    — PipeWire capture thread, ring buffer
+  SpectrumAnalyzer.{h,cpp} — FFTW FFT, Blackman window, band levels, ballistics
+  MeterRenderer.{h,cpp}   — Skia drawing (segments, glow, labels)
+  MeterWidget.{h,cpp}     — GtkDrawingArea host, Skia→cairo blit
+  main.cpp                — GtkApplication, controls
+tools/
+  render_test.cpp         — Offscreen smoke test
+docs/
+  ROADMAP.md              — Planned features and known constraints
+```
+
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work including GPU rendering
+(GtkGLArea + Skia Ganesh), stereo support, input device selection, and packaging.
+
+## License
+
+MIT
