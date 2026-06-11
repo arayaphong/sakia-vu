@@ -1,0 +1,6 @@
+build*/
+third_party/skia/
+*.o
+*.a
+.cache/
+compile_commands.json

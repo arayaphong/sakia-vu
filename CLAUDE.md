@@ -1,0 +1,94 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+**SakiaVU** — A native 16-band spectrum/VU meter desktop application written in C++ using GTK4 and Skia for rendering. The reference design is in [html-src/vu-meter.html](html-src/vu-meter.html).
+
+Planned work and known constraints are tracked in [docs/ROADMAP.md](docs/ROADMAP.md) —
+read its "Known constraints" section before touching the analyzer ballistics, font
+loading, or pixel-format code.
+
+Key features to replicate from the HTML reference:
+- 16 frequency bands, logarithmic scale 30 Hz → 16 kHz
+- 28 LED segments per band, color-coded green/amber/red by level (0–60% green, 60–82% amber, >82% red)
+- Peak hold with gravity-fall animation
+- Gain slider (0.5×–6×)
+- Real-time microphone input via PipeWire/ALSA
+
+## Build System
+
+The project uses **CMake** (target: CMake ≥ 3.25) with **Ninja** as the generator.
+
+```bash
+# Configure (first time)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+# Build
+cmake --build build
+
+# Run
+./build/sakia-vu
+
+# Offscreen render smoke test (no GTK/mic needed; writes a PNG to inspect)
+cmake --build build --target render-test
+./build/render-test /tmp/sakia-render.png
+```
+
+## Dependencies
+
+| Library | Source | Purpose |
+|---|---|---|
+| GTK 4 | system (pkg-config) | Window, event loop, GtkDrawingArea host |
+| Skia m148 | vendored prebuilt in `third_party/skia/` | 2D rendering (segments, glow, labels) |
+| PipeWire (libpipewire-0.3) | system | Audio capture |
+| FFTW3 (fftw3f) | system | FFT — single-precision float variant |
+
+Skia is the prebuilt static `Skia-Linux-Release-x64.zip` from aseprite/skia releases
+(tag `m148-a29c8d23be`), unpacked to `third_party/skia/` (not committed — re-download if
+missing). It is built against **libstdc++**, so plain g++ links fine. Its bundled deps
+(freetype, harfbuzz, png, zlib, expat, jpeg, webp, wuffs, skcms) are linked from
+`third_party/skia/out/Release-x64/` inside a `--start-group` block.
+
+**Gotcha:** do NOT use `SkFontMgr_New_FontConfig` from this prebuilt — it hangs for
+minutes enumerating family names on hosts with aliasing-heavy fontconfig setups (this
+machine has one). `MeterRenderer` loads a known mono TTF directly via
+`SkFontMgr_New_Custom_Empty()->makeFromFile()` instead.
+
+## Architecture
+
+```
+src/main.cpp          — GtkApplication, window, controls (start/stop, gain, peak hold), tick callback
+src/AudioCapture      — PipeWire capture thread (mono F32 @48k requested); mutex-guarded ring buffer
+src/SpectrumAnalyzer  — FFTW r2c 4096, Blackman window, WebAudio-style dB mapping + ballistics
+src/MeterRenderer     — Pure Skia drawing at logical 1640×560, scaled to canvas size
+src/MeterWidget       — GtkDrawingArea host; Skia CPU raster surface blitted to cairo (BGRA≡ARGB32)
+tools/render_test.cpp — Offscreen smoke test: synthetic tones → analyzer → PNG
+```
+
+Data flow: `AudioCapture → latest(4096) → SpectrumAnalyzer → levels[16]/peaks[16] → MeterRenderer → SkSurface → cairo`
+
+Animation runs via `gtk_widget_add_tick_callback` on the meter widget; analyzer ballistics
+are per-frame (matching the HTML's rAF loop), updated only while capture is running.
+
+## Rendering Details (matching HTML reference)
+
+- Canvas logical size: 1640 × 560 (scaled to widget size preserving aspect ratio)
+- `padX=24, padTop=14, padBottom=46`
+- `barW = colW * 0.62`, `gapSeg = 4 px`, segment corner radius = 2 px
+- Unlit segment colour: `#161b20`; glow `shadowBlur` emulated with Skia `SkMaskFilter::MakeBlur`
+- Peak dot: extra glow blur radius 14 vs 8 for normal lit segments
+- Font: monospace 22 px for band labels, 20 px for "Hz" unit
+
+## Signal Processing
+
+```
+FFT size: 4096 samples, Blackman window (matches WebAudio AnalyserNode)
+Per-bin magnitude smoothing: X̂[k] = 0.6·X̂prev[k] + 0.4·(|fft[k]|/N)   (smoothingTimeConstant)
+dB mapping: clamp((20·log10(X̂) + 100) / 70, 0, 1)                      (minDb -100, maxDb -30)
+Band value: mean of mapped bin values in range, × gain, clamped to 1
+Ballistics: attack = instant (if v > level), release = level += (v - level) * 0.22
+Peak fall: peakVel += 0.0009 per frame; peaks[b] -= peakVel[b]
+Band edges: f_i = FMIN * (FMAX/FMIN)^(i/NUM_BANDS) converted to FFT bin indices
+```
