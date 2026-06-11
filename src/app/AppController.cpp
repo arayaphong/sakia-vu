@@ -52,6 +52,10 @@ void AppController::onDeviceSelectedStatic(GObject*, GParamSpec*, gpointer user_
     static_cast<AppController*>(user_data)->onDeviceSelected();
 }
 
+void AppController::onCaptureModeToggledStatic(GtkToggleButton* btn, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onCaptureModeToggled(btn);
+}
+
 void AppController::setStatusMarkup(const char* markup) {
     gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
 }
@@ -87,7 +91,7 @@ void AppController::onToggle(GtkButton* btn) {
         gtk_button_set_label(btn, "Stop");
         setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
     } else {
-        setStatusMarkup("<span foreground=\"#d97706\">▲ MIC ERROR</span>");
+        setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
     }
 }
 
@@ -111,19 +115,39 @@ void AppController::onDeviceSelected() {
         return;
     }
 
+    restartCapture();
+}
+
+void AppController::onCaptureModeToggled(GtkToggleButton* btn) {
+    AudioCaptureMode mode = gtk_toggle_button_get_active(btn) ? AudioCaptureMode::Output
+                                                             : AudioCaptureMode::Microphone;
+    audioSource_->setCaptureMode(mode);
+    audioSource_->setDeviceTarget("");
+    gtk_button_set_label(GTK_BUTTON(btn), mode == AudioCaptureMode::Output ? "Output" : "Mic");
+    refreshDeviceList();
+
+    if (audioSource_->running()) {
+        restartCapture();
+    }
+}
+
+bool AppController::restartCapture() {
     audioSource_->stop();
     spectrumAnalyzer_->reset();
     if (audioSource_->start()) {
         setStatusMarkup("<span foreground=\"#2fb344\">● LIVE</span>");
+        return true;
     } else {
         gtk_button_set_label(GTK_BUTTON(toggleBtn), "Listen");
-        setStatusMarkup("<span foreground=\"#d97706\">▲ MIC ERROR</span>");
+        setStatusMarkup("<span foreground=\"#d97706\">▲ CAPTURE ERROR</span>");
+        return false;
     }
 }
 
 void AppController::refreshDeviceList() {
     audioDevices_.clear();
-    audioDevices_.push_back({"", "Default input"});
+    bool outputMode = audioSource_->captureMode() == AudioCaptureMode::Output;
+    audioDevices_.push_back({"", outputMode ? "Default output" : "Default input"});
 
     std::vector<AudioDevice> devices = audioSource_->devices();
     audioDevices_.insert(audioDevices_.end(), devices.begin(), devices.end());
@@ -228,7 +252,14 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     g_signal_connect(toggleBtn, "clicked", G_CALLBACK(onToggleStatic), this);
     gtk_box_append(GTK_BOX(controls), toggleBtn);
 
-    GtkWidget* inputLabel = gtk_label_new("Input");
+    GtkWidget* modeLabel = gtk_label_new("Mode");
+    gtk_box_append(GTK_BOX(controls), modeLabel);
+
+    captureModeBtn = gtk_toggle_button_new_with_label("Mic");
+    g_signal_connect(captureModeBtn, "toggled", G_CALLBACK(onCaptureModeToggledStatic), this);
+    gtk_box_append(GTK_BOX(controls), captureModeBtn);
+
+    GtkWidget* inputLabel = gtk_label_new("Device");
     gtk_box_append(GTK_BOX(controls), inputLabel);
 
     deviceDropDown = gtk_drop_down_new(nullptr, nullptr);

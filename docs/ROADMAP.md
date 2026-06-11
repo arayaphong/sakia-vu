@@ -20,11 +20,16 @@ priority order, with notes on where each change lands in the current code.
   `PW_KEY_TARGET_OBJECT`.
 - Changing the dropdown while running restarts capture against the new source.
 
-### 2. "What's playing" mode (monitor capture)
-Meter the system output instead of the mic — usually the more interesting use of a
-spectrum meter. Implementation is the same stream with `PW_KEY_STREAM_CAPTURE_SINK
-= "true"` (captures the default sink monitor). Add a Mic / Output toggle next to the
-Start button. Cheap once #1 exists; can even ship before #1.
+### 2. "What's playing" mode (monitor capture) — done
+Meter the system output instead of the mic.
+
+- `IAudioSource` now exposes `AudioCaptureMode`.
+- `AppController` has a Mic / Output toggle next to the Listen button.
+- Output mode enumerates PipeWire `media.class == "Audio/Sink"` nodes and changes the
+  device dropdown to default/output devices.
+- `PipeWireAudioCapture::start()` sets `PW_KEY_STREAM_CAPTURE_SINK = "true"` in output
+  mode, preserving autoconnect for the default output monitor and using
+  `PW_KEY_TARGET_OBJECT` for a selected output device.
 
 ### 3. Stereo
 The stream currently forces `channels = 1` (PipeWire downmixes). For a proper L/R view:

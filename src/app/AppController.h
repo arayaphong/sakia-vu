@@ -25,12 +25,15 @@ private:
     static void onActivateStatic(GtkApplication* gtkApp, gpointer user_data);
     static void onColorSchemeChangedStatic(GSettings* settings, gchar* key, gpointer user_data);
     static void onDeviceSelectedStatic(GObject* object, GParamSpec* pspec, gpointer user_data);
+    static void onCaptureModeToggledStatic(GtkToggleButton* btn, gpointer user_data);
 
     gboolean onTick(GtkWidget* widget, GdkFrameClock* clock);
     void onToggle(GtkButton* btn);
     void onPeakToggle(GtkToggleButton* btn);
     void onActivate(GtkApplication* gtkApp);
     void onDeviceSelected();
+    void onCaptureModeToggled(GtkToggleButton* btn);
+    bool restartCapture();
     void refreshDeviceList();
     void initThemePreferenceSync();
     void syncThemePreference();
@@ -45,6 +48,7 @@ private:
     GtkWidget* peakBtn = nullptr;
     GtkWidget* gainScale = nullptr;
     GtkWidget* statusLabel = nullptr;
+    GtkWidget* captureModeBtn = nullptr;
     GtkWidget* deviceDropDown = nullptr;
     GSettings* interfaceSettings = nullptr;
 

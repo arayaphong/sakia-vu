@@ -10,6 +10,11 @@ struct AudioDevice {
     std::string displayName;
 };
 
+enum class AudioCaptureMode {
+    Microphone,
+    Output,
+};
+
 class IAudioSource {
 public:
     virtual ~IAudioSource() = default;
@@ -24,4 +29,6 @@ public:
     virtual std::vector<AudioDevice> devices() = 0;
     virtual void setDeviceTarget(std::string targetObject) = 0;
     virtual const std::string& deviceTarget() const = 0;
+    virtual void setCaptureMode(AudioCaptureMode mode) = 0;
+    virtual AudioCaptureMode captureMode() const = 0;
 };

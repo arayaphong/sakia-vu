@@ -18,6 +18,7 @@ const pw_stream_events kStreamEvents = {
 
 struct DeviceEnumeration {
     pw_thread_loop* loop = nullptr;
+    AudioCaptureMode mode = AudioCaptureMode::Microphone;
     std::vector<AudioDevice> devices;
     int pendingSeq = 0;
     bool done = false;
@@ -43,11 +44,13 @@ void onRegistryGlobal(void* data, uint32_t id, uint32_t, const char* type, uint3
     }
 
     const char* mediaClass = lookupProp(props, PW_KEY_MEDIA_CLASS);
-    if (!mediaClass || std::strcmp(mediaClass, "Audio/Source") != 0) {
+    auto* state = static_cast<DeviceEnumeration*>(data);
+    const char* expectedClass =
+        state->mode == AudioCaptureMode::Output ? "Audio/Sink" : "Audio/Source";
+    if (!mediaClass || std::strcmp(mediaClass, expectedClass) != 0) {
         return;
     }
 
-    auto* state = static_cast<DeviceEnumeration*>(data);
     std::string targetObject =
         firstNonEmpty({lookupProp(props, PW_KEY_OBJECT_SERIAL), lookupProp(props, PW_KEY_NODE_NAME)});
     if (targetObject.empty()) {
@@ -104,6 +107,9 @@ bool PipeWireAudioCapture::start() {
         PW_KEY_MEDIA_ROLE, "Music",
         PW_KEY_APP_NAME, "SakiaVU",
         nullptr);
+    if (captureMode_ == AudioCaptureMode::Output) {
+        pw_properties_set(props, PW_KEY_STREAM_CAPTURE_SINK, "true");
+    }
     if (!targetObject_.empty()) {
         pw_properties_set(props, PW_KEY_TARGET_OBJECT, targetObject_.c_str());
     }
@@ -170,6 +176,7 @@ void PipeWireAudioCapture::latest(float* dst, size_t n) {
 
 std::vector<AudioDevice> PipeWireAudioCapture::devices() {
     DeviceEnumeration state;
+    state.mode = captureMode_;
     state.loop = pw_thread_loop_new("sakia-devices", nullptr);
     if (!state.loop) {
         return {};
@@ -234,6 +241,10 @@ std::vector<AudioDevice> PipeWireAudioCapture::devices() {
 
 void PipeWireAudioCapture::setDeviceTarget(std::string targetObject) {
     targetObject_ = std::move(targetObject);
+}
+
+void PipeWireAudioCapture::setCaptureMode(AudioCaptureMode mode) {
+    captureMode_ = mode;
 }
 
 void PipeWireAudioCapture::push(const float* samples, size_t n) {
