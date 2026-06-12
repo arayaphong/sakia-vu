@@ -11,8 +11,11 @@ A real-time 16-band spectrum / VU meter for Linux desktop, written in C++ with G
 - 16 frequency bands — logarithmic scale, 30 Hz → 16 kHz
 - 28 LED segments per band, colour-coded green / amber / red
 - Peak hold with gravity-fall animation
-- Adjustable input gain (0.5× – 6×)
-- Real-time microphone capture via **PipeWire**
+- Adjustable input gain (0.1× – 1.5×)
+- Real-time capture via **PipeWire** — microphone or system-output monitor
+  ("what's playing"), with input/output device selection
+- Physics playground overlay (**Box2D**): balls and boxes ride, bounce off, and
+  get launched by the spectrum bars and held peak dots
 
 ## Requirements
 
@@ -24,6 +27,7 @@ A real-time 16-band spectrum / VU meter for Linux desktop, written in C++ with G
 | CMake ≥ 3.25 | `cmake` |
 | Ninja | `ninja` |
 | Skia m148 (prebuilt) | see below |
+| Box2D v3.1.1 | fetched automatically by CMake (network needed on first configure) |
 
 ### Fetching the prebuilt Skia
 
@@ -48,16 +52,29 @@ cmake --build build
 ./build/sakia-vu
 ```
 
-Click **Listen**, allow microphone access, and use the **Gain** slider to adjust
-sensitivity. Toggle **Peak Hold** to enable or disable the peak indicators.
+Pick **Mic** or **Output** mode (and a device, or keep the default), click
+**Listen**, and use the **Gain** slider to adjust sensitivity. Toggle
+**Peak Hold** to enable or disable the peak indicators.
 
-## Offscreen render test
+Toggle **Physics** to reveal the playground controls — **Drop Ball**,
+**Drop Box**, **Clear**, **Low Gravity** — or click the canvas to spawn a ball
+(right-click for a box). The simulation keeps running while capture is stopped.
 
-Builds and renders a synthetic multi-tone signal to a PNG — no display or microphone required:
+## Headless smoke tests
+
+Render a synthetic multi-tone signal to a PNG — no display or microphone required:
 
 ```bash
 cmake --build build --target render-test
 ./build/render-test /tmp/sakia-render.png
+```
+
+Exercise the physics world (bounds, eviction, and below-surface-trap asserts —
+see [docs/PHYSICS.md](docs/PHYSICS.md)):
+
+```bash
+cmake --build build --target physics-test
+./build/physics-test
 ```
 
 ## Project layout
@@ -68,11 +85,14 @@ src/
   audio/                  — PipeWire audio source and FFTW spectrum analyzer
   core/interfaces/        — app-facing abstractions for DI
   core/models/            — shared state models
+  physics/                — Box2D physics world for the playground overlay
   ui/                     — GTK meter widget and Skia renderer
 tools/
-  render_test.cpp         — Offscreen smoke test
+  render_test.cpp         — Offscreen rendering smoke test
+  physics_test.cpp        — Headless physics smoke test
 docs/
   ARCHITECTURE.md         — Code structure and DI boundaries
+  PHYSICS.md              — Physics collision design and anti-trap invariants
   ROADMAP.md              — Planned features and known constraints
 ```
 
@@ -82,7 +102,7 @@ dependency direction.
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work including GPU rendering
-(GtkGLArea + Skia Ganesh), stereo support, input device selection, and packaging.
+(GtkGLArea + Skia Ganesh), stereo support, settings persistence, and packaging.
 
 ## License
 
