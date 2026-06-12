@@ -14,17 +14,24 @@ class GtkMeterWidget final : public IMeterWidget {
 public:
     GtkMeterWidget();
     void updateState(const MeterState& state) override;
+    void updatePhysicsState(const PhysicsState& state) override;
+    void setSpawnCallback(
+        std::function<void(float lx, float ly, bool secondary)> cb) override;
 
     GtkWidget* widget() const override { return area_; }
 
 private:
     static void drawFunc(GtkDrawingArea* area, cairo_t* cr, int width, int height,
                          gpointer user_data);
+    static void onPressed(GtkGestureClick* gesture, int n_press, double x, double y,
+                          gpointer user_data);
 
     void render(cairo_t* cr, int width, int height);
 
     GtkWidget* area_ = nullptr;
     MeterState state_;
+    PhysicsState physicsState_;
+    std::function<void(float, float, bool)> spawnCb_;
     SkiaMeterRenderer renderer_;
     sk_sp<SkSurface> surface_;
 };

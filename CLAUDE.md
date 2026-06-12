@@ -18,8 +18,13 @@ Features:
 - 16 frequency bands, logarithmic scale 30 Hz → 16 kHz
 - 28 LED segments per band, color-coded green/amber/red by level (0–60% green, 60–82% amber, >82% red)
 - Peak hold with gravity-fall animation
-- Gain slider (0.5×–6×)
-- Real-time microphone input via PipeWire
+- Gain slider (0.1×–1.5×)
+- Real-time audio capture via PipeWire (microphone or system output monitor)
+- Physics playground overlay (Box2D): balls/boxes launched by the rising bars and
+  held peak dots; click canvas = ball, right-click = box. The collision world has
+  anti-trap invariants (solid gap fillers, one-way peak ledges, per-step
+  `enforceSurface()` backstop) — read [docs/PHYSICS.md](docs/PHYSICS.md) before
+  changing `Box2dPhysicsWorld`
 
 ## Build System
 
@@ -38,6 +43,11 @@ cmake --build build
 # Offscreen render smoke test (no GTK/mic needed; writes a PNG to inspect)
 cmake --build build --target render-test
 ./build/render-test /tmp/sakia-render.png
+
+# Headless physics smoke test (no GTK/Skia; bounds, eviction, and
+# below-surface-trap asserts — see docs/PHYSICS.md)
+cmake --build build --target physics-test
+./build/physics-test
 ```
 
 ## Dependencies
@@ -48,6 +58,7 @@ cmake --build build --target render-test
 | Skia m148 | vendored prebuilt in `third_party/skia/` | 2D rendering (segments, glow, labels) |
 | PipeWire (libpipewire-0.3) | system | Audio capture |
 | FFTW3 (fftw3f) | system | FFT — single-precision float variant |
+| Box2D v3.1.1 | CMake FetchContent (pinned tag, needs network on first configure) | Physics playground rigid bodies |
 
 Skia is the prebuilt static `Skia-Linux-Release-x64.zip` from aseprite/skia releases
 (tag `m148-a29c8d23be`), unpacked to `third_party/skia/` (not committed — re-download if
@@ -64,11 +75,13 @@ machine has one). `SkiaMeterRenderer` loads a known mono TTF directly via
 
 ```
 src/app               — Composition root and GtkApplication controller; depends on core interfaces
-src/core/interfaces   — IAudioSource, ISpectrumAnalyzer, IMeterWidget, IMeterWidgetFactory
-src/core/models       — MeterState
+src/core/interfaces   — IAudioSource, ISpectrumAnalyzer, IMeterWidget, IMeterWidgetFactory, IPhysicsWorld
+src/core/models       — MeterState, MeterLayout (shared layout constants), PhysicsState
 src/audio             — PipeWireAudioCapture and FftwSpectrumAnalyzer implementations
+src/physics           — Box2dPhysicsWorld implementation (Box2D v3, 100 px/m, y-down world)
 src/ui                — GtkMeterWidget host and SkiaMeterRenderer drawing implementation
 tools/render_test.cpp — Offscreen smoke test: synthetic tones → analyzer → PNG
+tools/physics_test.cpp — Headless physics smoke test (bounds/eviction/trap asserts)
 ```
 
 Data flow: `IAudioSource → latest(sampleCount) → ISpectrumAnalyzer → MeterState → IMeterWidget → SkiaMeterRenderer → SkSurface → cairo`

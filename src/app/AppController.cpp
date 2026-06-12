@@ -4,11 +4,13 @@
 
 AppController::AppController(std::unique_ptr<IAudioSource> audioSource,
                              std::unique_ptr<ISpectrumAnalyzer> spectrumAnalyzer,
-                             std::unique_ptr<IMeterWidgetFactory> meterWidgetFactory)
+                             std::unique_ptr<IMeterWidgetFactory> meterWidgetFactory,
+                             std::unique_ptr<IPhysicsWorld> physicsWorld)
     : audioSource_(std::move(audioSource)),
       spectrumAnalyzer_(std::move(spectrumAnalyzer)),
-      meterWidgetFactory_(std::move(meterWidgetFactory)) {
-    if (!audioSource_ || !spectrumAnalyzer_ || !meterWidgetFactory_) {
+      meterWidgetFactory_(std::move(meterWidgetFactory)),
+      physics_(std::move(physicsWorld)) {
+    if (!audioSource_ || !spectrumAnalyzer_ || !meterWidgetFactory_ || !physics_) {
         throw std::invalid_argument("AppController dependencies must not be null");
     }
     frame_.resize(spectrumAnalyzer_->sampleCount());
@@ -64,6 +66,28 @@ void AppController::onGainChangedStatic(GtkRange*, gpointer user_data) {
     static_cast<AppController*>(user_data)->onGainChanged();
 }
 
+void AppController::onPhysicsToggleStatic(GtkToggleButton* btn, gpointer user_data) {
+    static_cast<AppController*>(user_data)->onPhysicsToggle(btn);
+}
+
+void AppController::onLowGravityToggleStatic(GtkToggleButton* btn, gpointer user_data) {
+    auto* self = static_cast<AppController*>(user_data);
+    self->physics_->setLowGravity(gtk_toggle_button_get_active(btn));
+}
+
+void AppController::onDropBallStatic(GtkButton*, gpointer user_data) {
+    // Negative coords: random x, spawn above the bars.
+    static_cast<AppController*>(user_data)->physics_->spawnBall(-1.0f, -1.0f);
+}
+
+void AppController::onDropBoxStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->physics_->spawnBox(-1.0f, -1.0f);
+}
+
+void AppController::onClearObjectsStatic(GtkButton*, gpointer user_data) {
+    static_cast<AppController*>(user_data)->physics_->clear();
+}
+
 void AppController::setStatusMarkup(const char* markup) {
     gtk_label_set_markup(GTK_LABEL(statusLabel), markup);
 }
@@ -82,17 +106,36 @@ void AppController::updateModeMenuChecks() {
     gtk_widget_set_opacity(outputModeCheck, outputMode ? 1.0 : 0.0);
 }
 
-gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock*) {
-    if (audioSource_->running()) {
+gboolean AppController::onTick(GtkWidget* widget, GdkFrameClock* clock) {
+    bool running = audioSource_->running();
+    if (running) {
         spectrumAnalyzer_->setSampleRate(audioSource_->sampleRate());
         audioSource_->latest(frame_.data(), frame_.size());
         float gain = static_cast<float>(gtk_range_get_value(GTK_RANGE(gainScale)));
         spectrumAnalyzer_->update(frame_.data(), gain, peakHold);
-        
+
         MeterState state = spectrumAnalyzer_->getState();
         state.peakHoldEnabled = peakHold;
+        lastState_ = state;
         meter_->updateState(state);
-        
+    }
+
+    if (physicsEnabled_) {
+        // Physics uses real frame time (sub-stepped at a fixed rate inside),
+        // unlike the analyzer ballistics which assume ~60 fps.
+        gint64 now = gdk_frame_clock_get_frame_time(clock);
+        float dt = lastTickUs_ > 0 ? static_cast<float>(now - lastTickUs_) * 1e-6f
+                                   : 1.0f / 60.0f;
+        lastTickUs_ = now;
+
+        lastState_.peakHoldEnabled = peakHold; // may change while stopped
+        physics_->step(dt, lastState_);
+        meter_->updatePhysicsState(physics_->state());
+    } else {
+        lastTickUs_ = 0;
+    }
+
+    if (running || physicsEnabled_) {
         gtk_widget_queue_draw(widget);
     }
     return G_SOURCE_CONTINUE;
@@ -120,6 +163,17 @@ void AppController::onToggle(GtkButton* btn) {
 void AppController::onPeakToggle(GtkToggleButton* btn) {
     peakHold = gtk_toggle_button_get_active(btn);
     if (!peakHold) spectrumAnalyzer_->resetPeaks();
+}
+
+void AppController::onPhysicsToggle(GtkToggleButton* btn) {
+    physicsEnabled_ = gtk_toggle_button_get_active(btn);
+    gtk_widget_set_visible(physicsControls, physicsEnabled_);
+    if (!physicsEnabled_) {
+        // Keep the world so objects resume where they were on re-enable,
+        // but clear the overlay immediately.
+        meter_->updatePhysicsState(PhysicsState{});
+        gtk_widget_queue_draw(meter_->widget());
+    }
 }
 
 void AppController::onDeviceSelected() {
@@ -279,6 +333,15 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     gtk_frame_set_child(GTK_FRAME(screen), meter_->widget());
     gtk_box_append(GTK_BOX(vbox), screen);
 
+    // Click-to-spawn physics objects: left = ball, right = box.
+    meter_->setSpawnCallback([this](float lx, float ly, bool secondary) {
+        if (!physicsEnabled_) return;
+        if (secondary)
+            physics_->spawnBox(lx, ly);
+        else
+            physics_->spawnBall(lx, ly);
+    });
+
     // Controls: start/stop, gain, peak hold.
     GtkWidget* controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
 
@@ -351,7 +414,37 @@ void AppController::onActivate(GtkApplication* gtkApp) {
     g_signal_connect(peakBtn, "toggled", G_CALLBACK(onPeakToggleStatic), this);
     gtk_box_append(GTK_BOX(controls), peakBtn);
 
+    physicsBtn = gtk_toggle_button_new_with_label("Physics");
+    g_signal_connect(physicsBtn, "toggled", G_CALLBACK(onPhysicsToggleStatic), this);
+    gtk_box_append(GTK_BOX(controls), physicsBtn);
+
     gtk_box_append(GTK_BOX(vbox), controls);
+
+    // Physics playground controls, hidden until the Physics toggle is on.
+    physicsControls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+
+    GtkWidget* dropBallBtn = gtk_button_new_with_label("Drop Ball");
+    g_signal_connect(dropBallBtn, "clicked", G_CALLBACK(onDropBallStatic), this);
+    gtk_box_append(GTK_BOX(physicsControls), dropBallBtn);
+
+    GtkWidget* dropBoxBtn = gtk_button_new_with_label("Drop Box");
+    g_signal_connect(dropBoxBtn, "clicked", G_CALLBACK(onDropBoxStatic), this);
+    gtk_box_append(GTK_BOX(physicsControls), dropBoxBtn);
+
+    GtkWidget* clearBtn = gtk_button_new_with_label("Clear");
+    g_signal_connect(clearBtn, "clicked", G_CALLBACK(onClearObjectsStatic), this);
+    gtk_box_append(GTK_BOX(physicsControls), clearBtn);
+
+    GtkWidget* lowGravBtn = gtk_toggle_button_new_with_label("Low Gravity");
+    g_signal_connect(lowGravBtn, "toggled", G_CALLBACK(onLowGravityToggleStatic), this);
+    gtk_box_append(GTK_BOX(physicsControls), lowGravBtn);
+
+    GtkWidget* spawnHint = gtk_label_new("Click canvas: ball · right-click: box");
+    gtk_widget_set_opacity(spawnHint, 0.6);
+    gtk_box_append(GTK_BOX(physicsControls), spawnHint);
+
+    gtk_widget_set_visible(physicsControls, FALSE);
+    gtk_box_append(GTK_BOX(vbox), physicsControls);
 
     gtk_window_set_child(GTK_WINDOW(window), vbox);
     gtk_widget_add_tick_callback(meter_->widget(), onTickStatic, this, nullptr);

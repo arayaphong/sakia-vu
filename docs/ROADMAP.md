@@ -46,9 +46,33 @@ compilation at install time; until packaging (v0.4) exists, a plain GKeyFile in
 `~/.config/sakiavu.ini` is less friction. Start with GKeyFile, migrate when packaged.
 
 ### 5. Error surfacing
-`onToggle` shows "MIC ERROR" but PipeWire failures are silent in the stream events. Hook
+`onToggle` shows "▲ CAPTURE ERROR" but PipeWire failures are silent in the stream events. Hook
 `pw_stream_events.state_changed`, watch for `PW_STREAM_STATE_ERROR`, forward the error
 string to the status label via `g_idle_add`.
+
+### 5b. Physics playground — done (2026-06-12)
+Box2D v3.1.1 (CMake FetchContent, pinned tag) drives balls/boxes that bounce off the
+spectrum bars and held peak dots, rendered as an overlay on the unchanged LED meter.
+
+- `IPhysicsWorld` / `PhysicsState` in core; `Box2dPhysicsWorld` in `src/physics/`
+  (100 px/m, y-down world, fixed 1/60 substepping with an accumulator — physics uses
+  real `GdkFrameClock` dt, so it is frame-rate independent unlike the analyzer
+  ballistics).
+- Bars + peak platforms are kinematic bodies driven by per-step velocity targeting
+  (imparts real momentum; peak bodies enable/disable with the Peak Hold toggle).
+- UI: "Physics" toggle reveals Drop Ball / Drop Box / Clear / Low Gravity; canvas
+  click spawns a ball, right-click a box. Simulation continues while capture is
+  stopped; toggling Physics off pauses the world and clears the overlay.
+- `tools/physics_test.cpp` (`physics-test` target) is the headless bounds/eviction
+  smoke test; `src/core/models/MeterLayout.h` keeps renderer and collision layout
+  in lockstep.
+
+### 5c. Physics: objects trapped below/inside the meter surface — fixed (2026-06-12)
+Objects could end up wedged below the gap between two bars or embedded inside a
+bar until it receded. Fixed with three layered mechanisms in `Box2dPhysicsWorld`
+(solid gap fillers, one-way peak ledges, `enforceSurface()` backstop), guarded by
+`physics-test`. Full root-cause history and do-not-regress rules:
+[docs/PHYSICS.md](PHYSICS.md).
 
 ---
 
@@ -141,3 +165,12 @@ flakiness risk: install `ttf-dejavu` and the candidate list in
   Fine for x86_64/ARM64 Linux; revisit only if that assumption ever breaks.
 - Prebuilt Skia is libstdc++ — if it's ever swapped for a libc++ build, the whole app
   must move to clang + libc++.
+- Box2D is pinned to tag `v3.1.1` via FetchContent. Its C API moved
+  friction/restitution into `b2ShapeDef::material` (`b2SurfaceMaterial`); when bumping
+  the tag, re-check those field names against the fetched headers before building.
+- **Physics anti-trap invariants** — see the "Do not regress" section of
+  [docs/PHYSICS.md](PHYSICS.md) (no thin teleporting geometry, velocity-driven
+  kinematics, one-way peak ledges, `enforceSurface()` after every fixed step).
+  `physics-test` fails if these regress.
+- The first CMake configure needs network access to clone Box2D (shallow, ~seconds);
+  subsequent builds are offline.
