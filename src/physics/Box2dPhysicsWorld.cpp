@@ -10,6 +10,26 @@ namespace ml = meterlayout;
 namespace {
 constexpr b2Vec2 kGravityNormal{0.0f, 19.6f}; // y-down world; demo ratio 2.0
 constexpr b2Vec2 kGravityLow{0.0f, 1.96f};    //                demo ratio 0.2
+// Contact-slop allowance before enforceSurface() lifts an object; resting
+// contacts legitimately penetrate ~0.5 px (b2_linearSlop).
+constexpr float kSurfaceSlopPx = 2.0f;
+
+// Shape userData marker identifying peak-ledge shapes in the pre-solve hook.
+char gPeakTag;
+
+// One-way peak ledges: solid only for objects landing from above. Without
+// this, a ledge descending onto an object standing on a bar (or a bar rising
+// into a held ledge) is an unsolvable kinematic-vs-kinematic squeeze that
+// presses the object into the bar until the bar recedes.
+bool peakOneWayPreSolve(b2ShapeId a, b2ShapeId b, b2Manifold* manifold, void*) {
+    // Pre-solve events are enabled only on peak shapes, and ledge-ledge pairs
+    // are kinematic and never collide, so exactly one side is the ledge.
+    const bool aIsPeak = b2Shape_GetUserData(a) == &gPeakTag;
+    // Manifold normal points from shape A to shape B; flip so it points from
+    // the ledge to the object. y-down: object on top means normal.y near -1.
+    const float ny = aIsPeak ? manifold->normal.y : -manifold->normal.y;
+    return ny < -0.95f;
+}
 } // namespace
 
 Box2dPhysicsWorld::Box2dPhysicsWorld() {
@@ -20,6 +40,7 @@ Box2dPhysicsWorld::Box2dPhysicsWorld() {
     // (m/s) instead of being launched; the trap fix relies on this depenetration.
     worldDef.maxContactPushSpeed = 3.0f;
     world_ = b2CreateWorld(&worldDef);
+    b2World_SetPreSolveCallback(world_, peakOneWayPreSolve, nullptr);
 
     // Four static walls, 1 m thick, just outside the canvas. Ground top edge
     // sits exactly on the bar-bottom line (kGroundY = 514 px).
@@ -69,6 +90,8 @@ Box2dPhysicsWorld::Box2dPhysicsWorld() {
         b2ShapeDef peakShape = b2DefaultShapeDef();
         peakShape.material.friction = 0.2f;
         peakShape.material.restitution = 0.3f;
+        peakShape.userData = &gPeakTag;
+        peakShape.enablePreSolveEvents = true; // one-way: see peakOneWayPreSolve
         b2Polygon peakBox = b2MakeBox(barHalfW, peakHalfH);
         b2CreatePolygonShape(peakPlatforms_[b], &peakShape, &peakBox);
     }
@@ -113,6 +136,7 @@ void Box2dPhysicsWorld::step(float dtSeconds, const MeterState& meter) {
     while (accumulator_ >= kFixedDt) {
         syncKinematics(meter);
         b2World_Step(world_, kFixedDt, kSubSteps);
+        enforceSurface();
         accumulator_ -= kFixedDt;
     }
     pruneEscaped();
@@ -171,6 +195,64 @@ void Box2dPhysicsWorld::syncGapFillers(
     for (int b = 0; b < kGapCount; b++) {
         b2Polygon quad = gapQuad(b, barTopsPx[b], barTopsPx[b + 1]);
         b2Shape_SetPolygon(gapFillerShapes_[b], &quad);
+    }
+}
+
+bool Box2dPhysicsWorld::surfaceYAt(float lx, float& surfaceY) const {
+    // Over a bar column: that bar's actual top.
+    for (int b = 0; b < MeterState::kNumBands; b++) {
+        if (std::abs(ml::barCenterX(b) - lx) <= ml::kBarW / 2) {
+            surfaceY = toPx(b2Body_GetPosition(bars_[b]).y - kBarHalfH);
+            return true;
+        }
+    }
+    // In a gap slot: lerp between the neighboring bar tops.
+    for (int b = 0; b < kGapCount; b++) {
+        const float leftX = ml::barCenterX(b) + ml::kBarW / 2;
+        const float rightX = ml::barCenterX(b + 1) - ml::kBarW / 2;
+        if (lx <= leftX || lx >= rightX) continue;
+        const float t = (lx - leftX) / (rightX - leftX);
+        const float y1 = toPx(b2Body_GetPosition(bars_[b]).y - kBarHalfH);
+        const float y2 = toPx(b2Body_GetPosition(bars_[b + 1]).y - kBarHalfH);
+        surfaceY = y1 + (y2 - y1) * t;
+        return true;
+    }
+    return false;
+}
+
+void Box2dPhysicsWorld::enforceSurface() {
+    // The fillers and one-way ledges keep this rare, but a surface rising at
+    // up to 50 px/step embeds objects faster than maxContactPushSpeed
+    // (~5 px/step) expels them, and residual squeezes (e.g. bar vs ceiling)
+    // are unsolvable for the solver. Place such objects back on the surface,
+    // keeping their horizontal motion -- indistinguishable from the surface
+    // having carried them up.
+    for (auto& [body, obj] : objects_) {
+        const b2Vec2 p = b2Body_GetPosition(body);
+
+        // Lowest world point: balls directly below center, boxes their
+        // lowest rotated corner. Depth is measured against the surface at
+        // that point's own x, so resting flush on a slanted filler (where
+        // the surface under the center is higher) never false-triggers.
+        b2Vec2 low{p.x, p.y + toM(obj.size)};
+        if (obj.kind == PhysicsObject::Kind::Box) {
+            const b2Rot q = b2Body_GetRotation(body);
+            const float s = toM(obj.size);
+            const float lx = q.s >= 0 ? s : -s;
+            const float ly = q.c >= 0 ? s : -s;
+            low = {p.x + lx * q.c - ly * q.s, p.y + lx * q.s + ly * q.c};
+        }
+
+        float surfaceY = 0.0f;
+        if (!surfaceYAt(toPx(low.x), surfaceY)) continue;
+        const float depthPx = toPx(low.y) - surfaceY;
+        if (depthPx <= kSurfaceSlopPx) continue;
+
+        b2Body_SetTransform(body, {p.x, p.y - toM(depthPx)},
+                            b2Body_GetRotation(body));
+        b2Vec2 v = b2Body_GetLinearVelocity(body);
+        if (v.y > 0.0f) v.y = 0.0f; // y-down: drop any remaining sink speed
+        b2Body_SetLinearVelocity(body, {v.x, v.y});
     }
 }
 

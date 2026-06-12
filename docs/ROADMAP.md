@@ -67,6 +67,13 @@ spectrum bars and held peak dots, rendered as an overlay on the unchanged LED me
   smoke test; `src/core/models/MeterLayout.h` keeps renderer and collision layout
   in lockstep.
 
+### 5c. Physics: objects trapped below/inside the meter surface — fixed (2026-06-12)
+Objects could end up wedged below the gap between two bars or embedded inside a
+bar until it receded. Fixed with three layered mechanisms in `Box2dPhysicsWorld`
+(solid gap fillers, one-way peak ledges, `enforceSurface()` backstop), guarded by
+`physics-test`. Full root-cause history and do-not-regress rules:
+[docs/PHYSICS.md](PHYSICS.md).
+
 ---
 
 ## v0.3 — Rendering & DSP quality
@@ -161,5 +168,9 @@ flakiness risk: install `ttf-dejavu` and the candidate list in
 - Box2D is pinned to tag `v3.1.1` via FetchContent. Its C API moved
   friction/restitution into `b2ShapeDef::material` (`b2SurfaceMaterial`); when bumping
   the tag, re-check those field names against the fetched headers before building.
+- **Physics anti-trap invariants** — see the "Do not regress" section of
+  [docs/PHYSICS.md](PHYSICS.md) (no thin teleporting geometry, velocity-driven
+  kinematics, one-way peak ledges, `enforceSurface()` after every fixed step).
+  `physics-test` fails if these regress.
 - The first CMake configure needs network access to clone Box2D (shallow, ~seconds);
   subsequent builds are offline.

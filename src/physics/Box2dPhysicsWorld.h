@@ -42,6 +42,14 @@ private:
     void syncKinematics(const MeterState& meter);
     // Reshape the solid gap fillers to the given bar-top heights (logical px).
     void syncGapFillers(const std::array<float, MeterState::kNumBands>& barTopsPx);
+    // Hard guarantee: lift any object whose lowest point ended a step below
+    // the bar/gap surface back onto it (a rising surface can embed faster
+    // than the solver's clamped depenetration can expel, and kinematic
+    // squeezes are unsolvable).
+    void enforceSurface();
+    // Meter surface y (logical px) at lx from the bars' actual positions:
+    // bar top over a column, lerp in a gap slot; false outside the meter.
+    bool surfaceYAt(float lx, float& surfaceY) const;
     // Convex quad filling gap slot `gap`: slanted top edge between the two
     // bar tops, bottom edge 1 m below the ground line (never degenerate).
     static b2Polygon gapQuad(int gap, float leftTopPx, float rightTopPx);

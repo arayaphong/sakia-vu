@@ -91,7 +91,11 @@ The physics playground (optional, toggled in the UI) runs alongside this flow on
 same tick: `IPhysicsWorld::step(dt, MeterState)` turns the bars and held peak dots
 into kinematic collision bodies, and `IPhysicsWorld::state()` produces a
 `PhysicsState` that goes to `IMeterWidget::updatePhysicsState` and is drawn by
-`SkiaMeterRenderer::drawPhysicsOverlay` on top of the meter. Canvas clicks travel the
+`SkiaMeterRenderer::drawPhysicsOverlay` on top of the meter. The collision world
+also carries solid gap-filler quads between the bars, one-way peak ledges, and a
+per-step `enforceSurface()` backstop so objects can never lodge below or inside
+the meter surface (design rationale and do-not-regress rules:
+[PHYSICS.md](PHYSICS.md)). Canvas clicks travel the
 other way through `IMeterWidget::setSpawnCallback` (a `std::function`, so core stays
 GTK-free). `core/models/MeterLayout.h` holds the shared constexpr layout math so the
 collision geometry and the drawn pixels can never diverge.
@@ -118,3 +122,10 @@ injection.
 `render-test` intentionally avoids GTK and PipeWire. It constructs
 `FftwSpectrumAnalyzer` and `SkiaMeterRenderer` directly, feeds deterministic synthetic
 samples, and writes a PNG. Keep it as a fast smoke test for DSP/rendering regressions.
+
+`physics-test` likewise avoids GTK/Skia/audio: it drives `Box2dPhysicsWorld` with
+scripted band levels through four phases (sine ballistics, gap-center ball drops,
+checkerboard square-wave spikes, falling peak-ledge sweeps) and asserts objects stay
+finite and in bounds, never rest below the bar/gap surface line, and that the object
+cap and `clear()` hold. It is deterministic (fixed RNG seed) and is the regression
+guard for the anti-trap mechanisms described in [PHYSICS.md](PHYSICS.md).
