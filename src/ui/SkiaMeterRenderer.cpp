@@ -1,6 +1,7 @@
 #include "SkiaMeterRenderer.h"
 
 #include "include/core/SkBlurTypes.h"
+#include "include/core/SkColor.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkMaskFilter.h"
 #include "include/core/SkRRect.h"
@@ -59,15 +60,14 @@ void SkiaMeterRenderer::draw(SkCanvas* canvas, int width, int height,
     canvas->save();
     canvas->scale(width / kLogicalW, height / kLogicalH);
 
+    // Layout values are shared with the physics world via MeterLayout.h.
     constexpr float W = kLogicalW, H = kLogicalH;
-    constexpr float padX = 24, padTop = 14, padBottom = 46;
-    constexpr float usableW = W - padX * 2;
-    constexpr float usableH = H - padTop - padBottom;
+    constexpr float padX = meterlayout::kPadX, padTop = meterlayout::kPadTop;
     constexpr int bands = MeterState::kNumBands;
-    constexpr float colW = usableW / bands;
-    constexpr float barW = colW * 0.62f;
-    constexpr float gapSeg = 4;
-    constexpr float segH = (usableH - (kSegments - 1) * gapSeg) / kSegments;
+    constexpr float colW = meterlayout::kColW;
+    constexpr float barW = meterlayout::kBarW;
+    constexpr float gapSeg = meterlayout::kGapSeg;
+    constexpr float segH = meterlayout::kSegH;
 
     const auto& levels = state.levels;
     const auto& peaks = state.peaks;
@@ -131,6 +131,43 @@ void SkiaMeterRenderer::draw(SkCanvas* canvas, int width, int height,
     float tw = unitFont.measureText(hz, 2, SkTextEncoding::kUTF8);
     canvas->drawSimpleText(hz, 2, SkTextEncoding::kUTF8, W - padX - tw, H - 16,
                            unitFont, unitPaint);
+
+    canvas->restore();
+}
+
+void SkiaMeterRenderer::drawPhysicsOverlay(SkCanvas* canvas, int width, int height,
+                                           const PhysicsState& state) const {
+    if (state.objects.empty()) return;
+
+    canvas->save();
+    canvas->scale(width / kLogicalW, height / kLogicalH);
+
+    SkPaint fill;
+    fill.setAntiAlias(true);
+    SkPaint specular;
+    specular.setAntiAlias(true);
+    specular.setColor(SK_ColorWHITE);
+    specular.setAlphaf(0.25f);
+
+    for (const PhysicsObject& o : state.objects) {
+        SkScalar hsv[3] = {o.hue, 0.75f, 0.95f}; // ~ the demo's hsl(h,80%,60%)
+        fill.setColor(SkHSVToColor(hsv));
+
+        canvas->save();
+        canvas->translate(o.x, o.y);
+        canvas->rotate(o.angle * 180.0f / SK_FloatPI);
+
+        if (o.kind == PhysicsObject::Kind::Ball) {
+            canvas->drawCircle(0, 0, o.size, fill);
+            canvas->drawCircle(-o.size * 0.3f, -o.size * 0.3f, o.size * 0.35f,
+                               specular);
+        } else {
+            SkRRect rrect = SkRRect::MakeRectXY(
+                SkRect::MakeLTRB(-o.size, -o.size, o.size, o.size), 6, 6);
+            canvas->drawRRect(rrect, fill);
+        }
+        canvas->restore();
+    }
 
     canvas->restore();
 }

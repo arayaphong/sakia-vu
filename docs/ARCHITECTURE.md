@@ -18,12 +18,18 @@ src/
       ISpectrumAnalyzer.h    DSP/analyzer contract
       IMeterWidget.h         UI meter host contract
       IMeterWidgetFactory.h  Factory for creating meter widgets after GTK activation
+      IPhysicsWorld.h        Physics playground contract
     models/
       MeterState.h           Analyzer-to-renderer data model
+      MeterLayout.h          Shared constexpr canvas layout (renderer + physics)
+      PhysicsState.h         Physics-to-renderer data model (objects overlay)
 
   audio/
     PipeWireAudioCapture.*   IAudioSource implementation backed by PipeWire
     FftwSpectrumAnalyzer.*   ISpectrumAnalyzer implementation backed by FFTW3
+
+  physics/
+    Box2dPhysicsWorld.*      IPhysicsWorld implementation backed by Box2D v3
 
   ui/
     GtkMeterWidget.*         IMeterWidget implementation using GtkDrawingArea
@@ -31,6 +37,7 @@ src/
 
 tools/
   render_test.cpp            Offscreen smoke test: synthetic audio -> PNG
+  physics_test.cpp           Headless physics smoke test (no GTK/Skia)
 ```
 
 ## Dependency Direction
@@ -40,6 +47,7 @@ Dependencies should point inward:
 ```
 app  -> core/interfaces, core/models
 audio -> core/interfaces, core/models
+physics -> core/interfaces, core/models
 ui    -> core/interfaces, core/models
 ```
 
@@ -53,6 +61,7 @@ PipeWireAudioCapture -> IAudioSource
 FftwSpectrumAnalyzer -> ISpectrumAnalyzer
 GtkMeterWidgetFactory -> IMeterWidgetFactory
 GtkMeterWidget -> IMeterWidget
+Box2dPhysicsWorld -> IPhysicsWorld
 ```
 
 `AppController` owns only interface pointers:
@@ -62,6 +71,7 @@ IAudioSource
 ISpectrumAnalyzer
 IMeterWidgetFactory
 IMeterWidget
+IPhysicsWorld
 ```
 
 ## Runtime Data Flow
@@ -76,6 +86,15 @@ IAudioSource::latest(sampleCount)
   -> SkSurface
   -> cairo
 ```
+
+The physics playground (optional, toggled in the UI) runs alongside this flow on the
+same tick: `IPhysicsWorld::step(dt, MeterState)` turns the bars and held peak dots
+into kinematic collision bodies, and `IPhysicsWorld::state()` produces a
+`PhysicsState` that goes to `IMeterWidget::updatePhysicsState` and is drawn by
+`SkiaMeterRenderer::drawPhysicsOverlay` on top of the meter. Canvas clicks travel the
+other way through `IMeterWidget::setSpawnCallback` (a `std::function`, so core stays
+GTK-free). `core/models/MeterLayout.h` holds the shared constexpr layout math so the
+collision geometry and the drawn pixels can never diverge.
 
 GTK lifecycle matters: the meter widget is created during application activation via
 `IMeterWidgetFactory`, not in the `AppController` constructor. This keeps GTK widget

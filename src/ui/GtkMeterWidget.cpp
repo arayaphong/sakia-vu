@@ -11,6 +11,28 @@ GtkMeterWidget::GtkMeterWidget() {
     gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(area_), 820);
     gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(area_), 280);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area_), drawFunc, this, nullptr);
+
+    GtkGesture* click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0); // any button
+    g_signal_connect(click, "pressed", G_CALLBACK(onPressed), this);
+    gtk_widget_add_controller(area_, GTK_EVENT_CONTROLLER(click));
+}
+
+void GtkMeterWidget::onPressed(GtkGestureClick* gesture, int, double x, double y,
+                               gpointer user_data) {
+    auto* self = static_cast<GtkMeterWidget*>(user_data);
+    if (!self->spawnCb_) return;
+
+    int w = gtk_widget_get_width(self->area_);
+    int h = gtk_widget_get_height(self->area_);
+    if (w <= 0 || h <= 0) return;
+
+    // The renderer stretches the logical canvas to the full widget, so the
+    // widget->logical mapping is a plain ratio.
+    float lx = static_cast<float>(x) * SkiaMeterRenderer::kLogicalW / w;
+    float ly = static_cast<float>(y) * SkiaMeterRenderer::kLogicalH / h;
+    guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+    self->spawnCb_(lx, ly, button == GDK_BUTTON_SECONDARY);
 }
 
 void GtkMeterWidget::drawFunc(GtkDrawingArea* area, cairo_t* cr, int width, int height,
@@ -29,6 +51,7 @@ void GtkMeterWidget::render(cairo_t* cr, int width, int height) {
     }
 
     renderer_.draw(surface_->getCanvas(), pw, ph, state_);
+    renderer_.drawPhysicsOverlay(surface_->getCanvas(), pw, ph, physicsState_);
 
     SkPixmap pixmap;
     if (!surface_->peekPixels(&pixmap)) return;
@@ -46,6 +69,15 @@ void GtkMeterWidget::render(cairo_t* cr, int width, int height) {
 
 void GtkMeterWidget::updateState(const MeterState& state) {
     state_ = state;
+}
+
+void GtkMeterWidget::updatePhysicsState(const PhysicsState& state) {
+    physicsState_ = state;
+}
+
+void GtkMeterWidget::setSpawnCallback(
+    std::function<void(float lx, float ly, bool secondary)> cb) {
+    spawnCb_ = std::move(cb);
 }
 
 std::unique_ptr<IMeterWidget> GtkMeterWidgetFactory::create() const {
