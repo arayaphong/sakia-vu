@@ -16,6 +16,9 @@ Box2dPhysicsWorld::Box2dPhysicsWorld() {
     b2WorldDef worldDef = b2DefaultWorldDef();
     worldDef.gravity = kGravityNormal;
     worldDef.enableSleep = false; // bars move constantly; keep contacts live
+    // Objects overlapped by a reshaped gap filler are lifted out at this speed
+    // (m/s) instead of being launched; the trap fix relies on this depenetration.
+    worldDef.maxContactPushSpeed = 3.0f;
     world_ = b2CreateWorld(&worldDef);
 
     // Four static walls, 1 m thick, just outside the canvas. Ground top edge
@@ -69,6 +72,36 @@ Box2dPhysicsWorld::Box2dPhysicsWorld() {
         b2Polygon peakBox = b2MakeBox(barHalfW, peakHalfH);
         b2CreatePolygonShape(peakPlatforms_[b], &peakShape, &peakBox);
     }
+
+    // Solid fillers occupy the entire slot between neighboring bars, from the
+    // line connecting the two bar tops down past the ground. The space below
+    // the visual surface is therefore always solid: a rising surface cannot
+    // skip past an object (the thin-bridge failure mode); it overlaps it and
+    // the solver lifts it out at maxContactPushSpeed.
+    for (int b = 0; b < kGapCount; b++) {
+        b2BodyDef fillerDef = b2DefaultBodyDef();
+        fillerDef.type = b2_kinematicBody;
+        b2BodyId filler = b2CreateBody(world_, &fillerDef);
+        b2ShapeDef fillerShape = b2DefaultShapeDef();
+        fillerShape.material.friction = 0.08f;
+        fillerShape.material.restitution = 0.0f;
+        b2Polygon quad = gapQuad(b, ml::kGroundY, ml::kGroundY);
+        gapFillerShapes_[b] = b2CreatePolygonShape(filler, &fillerShape, &quad);
+    }
+}
+
+b2Polygon Box2dPhysicsWorld::gapQuad(int gap, float leftTopPx, float rightTopPx) {
+    const float leftX = toM(ml::barCenterX(gap) + ml::kBarW / 2);
+    const float rightX = toM(ml::barCenterX(gap + 1) - ml::kBarW / 2);
+    const float bottomY = toM(ml::kGroundY) + 1.0f;
+    const b2Vec2 points[4] = {
+        {leftX, toM(leftTopPx)},
+        {rightX, toM(rightTopPx)},
+        {rightX, bottomY},
+        {leftX, bottomY},
+    };
+    b2Hull hull = b2ComputeHull(points, 4);
+    return b2MakePolygon(&hull, 0.0f);
 }
 
 Box2dPhysicsWorld::~Box2dPhysicsWorld() {
@@ -105,14 +138,20 @@ void Box2dPhysicsWorld::syncKinematics(const MeterState& meter) {
         }
     }
 
+    std::array<float, MeterState::kNumBands> barTopsPx{};
     for (int b = 0; b < MeterState::kNumBands; b++) {
         // The Matter demo's "reposition + velocity" trick, the Box2D way:
         // velocity (not transform) so the solver imparts real momentum, and
         // v = error/dt lands the body exactly on target after the step.
         float targetY = toM(ml::barTopForLevel(meter.levels[b])) + kBarHalfH;
         float vy = (targetY - b2Body_GetPosition(bars_[b]).y) / kFixedDt;
-        b2Body_SetLinearVelocity(
-            bars_[b], {0, std::clamp(vy, -kMaxKinematicSpeed, kMaxKinematicSpeed)});
+        vy = std::clamp(vy, -kMaxKinematicSpeed, kMaxKinematicSpeed);
+        b2Body_SetLinearVelocity(bars_[b], {0, vy});
+        // Where this bar's top will be after the step (the clamp may keep it
+        // short of the target); the gap fillers track this, not the raw level,
+        // so the surface stays flush with the physical bars mid-spike.
+        barTopsPx[b] =
+            toPx(b2Body_GetPosition(bars_[b]).y + vy * kFixedDt - kBarHalfH);
 
         if (peaksEnabled_) {
             float peakTargetY = toM(ml::barTopForLevel(meter.peaks[b])) + peakHalfH;
@@ -122,6 +161,16 @@ void Box2dPhysicsWorld::syncKinematics(const MeterState& meter) {
                 peakPlatforms_[b],
                 {0, std::clamp(pvy, -kMaxKinematicSpeed, kMaxKinematicSpeed)});
         }
+    }
+
+    syncGapFillers(barTopsPx);
+}
+
+void Box2dPhysicsWorld::syncGapFillers(
+    const std::array<float, MeterState::kNumBands>& barTopsPx) {
+    for (int b = 0; b < kGapCount; b++) {
+        b2Polygon quad = gapQuad(b, barTopsPx[b], barTopsPx[b + 1]);
+        b2Shape_SetPolygon(gapFillerShapes_[b], &quad);
     }
 }
 

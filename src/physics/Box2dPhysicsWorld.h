@@ -34,11 +34,17 @@ private:
     static constexpr int kMaxObjects = 16;
     static constexpr float kBarHalfH = 3.0f;  // 6 m tall: bottom never clears ground
     static constexpr float kMaxKinematicSpeed = 30.0f;
+    static constexpr int kGapCount = MeterState::kNumBands - 1;
 
     static float toM(float px) { return px / kPxPerMeter; }
     static float toPx(float m) { return m * kPxPerMeter; }
 
     void syncKinematics(const MeterState& meter);
+    // Reshape the solid gap fillers to the given bar-top heights (logical px).
+    void syncGapFillers(const std::array<float, MeterState::kNumBands>& barTopsPx);
+    // Convex quad filling gap slot `gap`: slanted top edge between the two
+    // bar tops, bottom edge 1 m below the ground line (never degenerate).
+    static b2Polygon gapQuad(int gap, float leftTopPx, float rightTopPx);
     void addObject(PhysicsObject::Kind kind, float lx, float ly);
     // Lowest bar-top y (logical px) among bands overlapping [lx-half, lx+half].
     float safeSpawnY(float lx, float halfPx, float ly) const;
@@ -47,8 +53,8 @@ private:
     b2WorldId world_{};
     std::array<b2BodyId, MeterState::kNumBands> bars_{};
     std::array<b2BodyId, MeterState::kNumBands> peakPlatforms_{};
+    std::array<b2ShapeId, kGapCount> gapFillerShapes_{};
     bool peaksEnabled_ = false;
-    std::array<float, MeterState::kNumBands> lastLevels_{};
 
     // Oldest-first; PhysicsObject holds the immutable props (kind/size/hue),
     // position and angle are read back from Box2D in state().
