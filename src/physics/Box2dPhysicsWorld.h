@@ -48,11 +48,14 @@ private:
     // squeezes are unsolvable).
     void enforceSurface();
     // Meter surface y (logical px) at lx from the bars' actual positions:
-    // bar top over a column, lerp in a gap slot; false outside the meter.
+    // bar top over a column, step to the shorter neighbor in a gap slot;
+    // false outside the meter.
     bool surfaceYAt(float lx, float& surfaceY) const;
-    // Convex quad filling gap slot `gap`: slanted top edge between the two
-    // bar tops, bottom edge 1 m below the ground line (never degenerate).
-    static b2Polygon gapQuad(int gap, float leftTopPx, float rightTopPx);
+    // Axis-aligned box filling gap slot `gap`: flat top at the shorter
+    // neighbor's level (y-down: max of the two bar-top y values), leaving a
+    // vertical cliff against the taller bar. Bottom edge 1 m below the ground
+    // line (never degenerate).
+    static b2Polygon gapFillerBox(int gap, float leftTopPx, float rightTopPx);
     void addObject(PhysicsObject::Kind kind, float lx, float ly);
     // Lowest bar-top y (logical px) among bands overlapping [lx-half, lx+half].
     float safeSpawnY(float lx, float halfPx, float ly) const;

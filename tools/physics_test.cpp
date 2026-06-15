@@ -44,10 +44,9 @@ bool surfaceAt(float x, const MeterState& meter, float& surfaceY) {
         const float leftX = ml::barCenterX(b) + ml::kBarW / 2;
         const float rightX = ml::barCenterX(b + 1) - ml::kBarW / 2;
         if (x <= leftX || x >= rightX) continue;
-        const float t = (x - leftX) / (rightX - leftX);
         const float y1 = ml::barTopForLevel(meter.levels[b]);
         const float y2 = ml::barTopForLevel(meter.levels[b + 1]);
-        surfaceY = y1 + (y2 - y1) * t;
+        surfaceY = std::max(y1, y2);
         return true;
     }
     return false;

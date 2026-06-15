@@ -22,7 +22,7 @@ Features:
 - Real-time audio capture via PipeWire (microphone or system output monitor)
 - Physics playground overlay (Box2D): balls/boxes launched by the rising bars and
   held peak dots; click canvas = ball, right-click = box. The collision world has
-  anti-trap invariants (solid gap fillers, one-way peak ledges, per-step
+  anti-trap invariants (solid flat-top gap-filler boxes, one-way peak ledges, per-step
   `enforceSurface()` backstop) — read [docs/PHYSICS.md](docs/PHYSICS.md) before
   changing `Box2dPhysicsWorld`
 

@@ -17,10 +17,14 @@ trap bugs that shaped it. Read this before changing anything in `src/physics/`.
     and bullet CCD works.
   - **Peak ledges** — thin kinematic platforms tracking the held peak dots,
     enabled with the Peak Hold toggle. **One-way**: see below.
-  - **Gap fillers** — one solid convex quad per gap between neighboring bars,
-    from the bar-top line down past the ground. Reshaped each step
-    (`gapQuad`/`syncGapFillers`) to the bars' *predicted post-step* tops so the
-    surface stays flush with the physical bars mid-spike.
+  - **Gap fillers** — one solid flat-top box per gap between neighboring bars,
+    from the shorter neighbor's bar-top level down past the ground. Reshaped each
+    step (`gapFillerBox`/`syncGapFillers`) to the bars' *predicted post-step* tops
+    so the surface stays flush with the physical bars mid-spike. The top is flat at
+    `max(leftTopPx, rightTopPx)` (y-down: the shorter bar), leaving a vertical cliff
+    against the taller bar — matching the drawn LED shape rather than a hidden ramp.
+    Objects therefore settle into troughs between bars and bounce off vertical bar
+    walls, instead of rolling smoothly across the spectrum on an invisible slope.
   - **Objects** — dynamic balls/boxes, `isBullet = true`, capped at 16 with
     oldest-first eviction.
 - `core/models/MeterLayout.h` holds the shared constexpr layout math so collision
@@ -60,12 +64,12 @@ Three layered mechanisms in `Box2dPhysicsWorld`:
   them. The catch-falling-objects gimmick is preserved.
 - **`enforceSurface()` backstop** (cause 2 and anything unforeseen) — after every
   fixed step, any object whose lowest point (ball bottom / lowest rotated box
-  corner) sits below the composite meter surface (bar top over a column, lerp
-  over a gap, measured at that point's *own* x) is lifted back onto it, keeping
-  horizontal velocity. This makes "below the surface across a frame" unreachable
-  *by construction*, whatever the cause. Measuring at the lowest point's own x
-  matters: measuring at the object's center x false-triggers on slanted fillers
-  and makes resting boxes jitter.
+  corner) sits below the composite meter surface (bar top over a column, step to
+  the shorter neighbor over a gap, measured at that point's *own* x) is lifted back
+  onto it, keeping horizontal velocity. This makes "below the surface across a
+  frame" unreachable *by construction*, whatever the cause. Measuring at the lowest
+  point's own x matters: a rotated box's lowest corner is offset from its center,
+  so measuring at the center x would mis-judge depth for tilted boxes.
 
 Known accepted edge: at full-scale levels the bar tops approach the ceiling and
 objects riding them have nowhere to be; the backstop pins them at the bar top,

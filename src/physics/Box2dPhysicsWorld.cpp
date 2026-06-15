@@ -108,18 +108,22 @@ Box2dPhysicsWorld::Box2dPhysicsWorld() {
         b2ShapeDef fillerShape = b2DefaultShapeDef();
         fillerShape.material.friction = 0.08f;
         fillerShape.material.restitution = 0.0f;
-        b2Polygon quad = gapQuad(b, ml::kGroundY, ml::kGroundY);
+        b2Polygon quad = gapFillerBox(b, ml::kGroundY, ml::kGroundY);
         gapFillerShapes_[b] = b2CreatePolygonShape(filler, &fillerShape, &quad);
     }
 }
 
-b2Polygon Box2dPhysicsWorld::gapQuad(int gap, float leftTopPx, float rightTopPx) {
+b2Polygon Box2dPhysicsWorld::gapFillerBox(int gap, float leftTopPx, float rightTopPx) {
     const float leftX = toM(ml::barCenterX(gap) + ml::kBarW / 2);
     const float rightX = toM(ml::barCenterX(gap + 1) - ml::kBarW / 2);
     const float bottomY = toM(ml::kGroundY) + 1.0f;
+    // y-down: larger y = shorter bar. Fill the slot up to the shorter neighbor's
+    // top so the surface is flush with the lower bar and a vertical cliff remains
+    // against the taller bar, matching the drawn LED shape.
+    const float topY = toM(std::max(leftTopPx, rightTopPx));
     const b2Vec2 points[4] = {
-        {leftX, toM(leftTopPx)},
-        {rightX, toM(rightTopPx)},
+        {leftX, topY},
+        {rightX, topY},
         {rightX, bottomY},
         {leftX, bottomY},
     };
@@ -193,7 +197,7 @@ void Box2dPhysicsWorld::syncKinematics(const MeterState& meter) {
 void Box2dPhysicsWorld::syncGapFillers(
     const std::array<float, MeterState::kNumBands>& barTopsPx) {
     for (int b = 0; b < kGapCount; b++) {
-        b2Polygon quad = gapQuad(b, barTopsPx[b], barTopsPx[b + 1]);
+        b2Polygon quad = gapFillerBox(b, barTopsPx[b], barTopsPx[b + 1]);
         b2Shape_SetPolygon(gapFillerShapes_[b], &quad);
     }
 }
@@ -206,15 +210,15 @@ bool Box2dPhysicsWorld::surfaceYAt(float lx, float& surfaceY) const {
             return true;
         }
     }
-    // In a gap slot: lerp between the neighboring bar tops.
+    // In a gap slot: the filler is flat at the shorter neighbor's top (y-down:
+    // larger y), matching the drawn cliff — not a lerp.
     for (int b = 0; b < kGapCount; b++) {
         const float leftX = ml::barCenterX(b) + ml::kBarW / 2;
         const float rightX = ml::barCenterX(b + 1) - ml::kBarW / 2;
         if (lx <= leftX || lx >= rightX) continue;
-        const float t = (lx - leftX) / (rightX - leftX);
         const float y1 = toPx(b2Body_GetPosition(bars_[b]).y - kBarHalfH);
         const float y2 = toPx(b2Body_GetPosition(bars_[b + 1]).y - kBarHalfH);
-        surfaceY = y1 + (y2 - y1) * t;
+        surfaceY = std::max(y1, y2);
         return true;
     }
     return false;
@@ -231,9 +235,9 @@ void Box2dPhysicsWorld::enforceSurface() {
         const b2Vec2 p = b2Body_GetPosition(body);
 
         // Lowest world point: balls directly below center, boxes their
-        // lowest rotated corner. Depth is measured against the surface at
-        // that point's own x, so resting flush on a slanted filler (where
-        // the surface under the center is higher) never false-triggers.
+        // lowest rotated corner. Depth is measured at that point's own x:
+        // a rotated box's lowest corner is offset from its center, so
+        // measuring at the center x would mis-judge depth for tilted boxes.
         b2Vec2 low{p.x, p.y + toM(obj.size)};
         if (obj.kind == PhysicsObject::Kind::Box) {
             const b2Rot q = b2Body_GetRotation(body);
