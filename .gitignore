@@ -1,3 +1,4 @@
+tmp/
 build*/
 third_party/skia/
 *.o

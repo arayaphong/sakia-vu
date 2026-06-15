@@ -92,7 +92,8 @@ same tick: `IPhysicsWorld::step(dt, MeterState)` turns the bars and held peak do
 into kinematic collision bodies, and `IPhysicsWorld::state()` produces a
 `PhysicsState` that goes to `IMeterWidget::updatePhysicsState` and is drawn by
 `SkiaMeterRenderer::drawPhysicsOverlay` on top of the meter. The collision world
-also carries solid gap-filler quads between the bars, one-way peak ledges, and a
+also carries solid gap-filler boxes between the bars (flat-topped, filling each
+slot to the shorter neighbor), one-way peak ledges, and a
 per-step `enforceSurface()` backstop so objects can never lodge below or inside
 the meter surface (design rationale and do-not-regress rules:
 [PHYSICS.md](PHYSICS.md)). Canvas clicks travel the

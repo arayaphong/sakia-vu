@@ -30,7 +30,7 @@ bool inBounds(const PhysicsObject& o) {
            o.x >= -100.0f && o.x <= 1740.0f && o.y >= -300.0f && o.y <= 660.0f;
 }
 
-// Meter surface y at x (bar top over a column, lerp in a gap slot), or false
+// Meter surface y at x (bar top over a column, step to the shorter neighbor in a gap slot), or false
 // when x is outside the meter strip.
 bool surfaceAt(float x, const MeterState& meter, float& surfaceY) {
     namespace ml = meterlayout;
@@ -44,10 +44,9 @@ bool surfaceAt(float x, const MeterState& meter, float& surfaceY) {
         const float leftX = ml::barCenterX(b) + ml::kBarW / 2;
         const float rightX = ml::barCenterX(b + 1) - ml::kBarW / 2;
         if (x <= leftX || x >= rightX) continue;
-        const float t = (x - leftX) / (rightX - leftX);
         const float y1 = ml::barTopForLevel(meter.levels[b]);
         const float y2 = ml::barTopForLevel(meter.levels[b + 1]);
-        surfaceY = y1 + (y2 - y1) * t;
+        surfaceY = std::max(y1, y2);
         return true;
     }
     return false;

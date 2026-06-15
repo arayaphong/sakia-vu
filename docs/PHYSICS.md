@@ -17,10 +17,11 @@ trap bugs that shaped it. Read this before changing anything in `src/physics/`.
     and bullet CCD works.
   - **Peak ledges** — thin kinematic platforms tracking the held peak dots,
     enabled with the Peak Hold toggle. **One-way**: see below.
-  - **Gap fillers** — one solid convex quad per gap between neighboring bars,
-    from the bar-top line down past the ground. Reshaped each step
-    (`gapQuad`/`syncGapFillers`) to the bars' *predicted post-step* tops so the
-    surface stays flush with the physical bars mid-spike.
+  - **Gap fillers** — one solid flat-top box per gap between neighboring bars,
+    filling the slot up to the shorter neighbor's top and continuing down past
+    the ground. Reshaped each step (`gapFillerBox`/`syncGapFillers`) to the bars'
+    *predicted post-step* tops so the surface stays flush with the physical bars
+    mid-spike.
   - **Objects** — dynamic balls/boxes, `isBullet = true`, capped at 16 with
     oldest-first eviction.
 - `core/models/MeterLayout.h` holds the shared constexpr layout math so collision
@@ -51,21 +52,35 @@ embedded inside a bar until it receded. Root causes found, in order:
 
 Three layered mechanisms in `Box2dPhysicsWorld`:
 
-- **Solid gap fillers** (cause 1) — the space below the visual surface is always
-  solid, so a rising surface cannot skip past an object; it overlaps it and the
-  solver lifts it out at `maxContactPushSpeed`.
+- **Solid gap fillers** (cause 1) — one flat-top box per gap, filling each slot
+  to the shorter neighbor's top and extending down past the ground, so the
+  space below the visual surface is always solid. A rising surface cannot skip
+  past an object; it overlaps it and the solver lifts it out at
+  `maxContactPushSpeed`.
 - **One-way peak ledges** (cause 3) — `peakOneWayPreSolve` (Box2D pre-solve
   callback, enabled only on peak shapes) keeps ledges solid only against objects
   landing from above; descending ledges pass through objects instead of crushing
   them. The catch-falling-objects gimmick is preserved.
 - **`enforceSurface()` backstop** (cause 2 and anything unforeseen) — after every
   fixed step, any object whose lowest point (ball bottom / lowest rotated box
-  corner) sits below the composite meter surface (bar top over a column, lerp
-  over a gap, measured at that point's *own* x) is lifted back onto it, keeping
-  horizontal velocity. This makes "below the surface across a frame" unreachable
-  *by construction*, whatever the cause. Measuring at the lowest point's own x
-  matters: measuring at the object's center x false-triggers on slanted fillers
-  and makes resting boxes jitter.
+  corner) sits below the composite meter surface (bar top over a column, step
+  to the shorter neighbor in a gap, measured at that point's *own* x) is lifted
+  back onto it, keeping horizontal velocity. This makes "below the surface
+  across a frame" unreachable *by construction*, whatever the cause. Measuring
+  at the lowest point's own x matters: a rotated box's lowest corner is offset
+  from its center, so measuring at the object's center x would mis-judge depth
+  for tilted boxes.
+
+Rationale for the stepped gap surface: the collision shape now matches the
+drawn vertical cliff between bars of different heights, not a hidden ramp. The
+intended tradeoff is that objects settle into troughs and bounce off vertical
+bar walls rather than rolling smoothly across a continuous ridge.
+
+Because the new vertical walls can convert a fast-rising bar's motion into a
+large upward impulse, dynamic-object restitution was lowered (balls 0.8 → 0.3,
+boxes 0.6 → 0.2). This keeps objects from being launched out of the world while
+still allowing enough bounce for them to escape troughs. Bars, fillers, and peak
+ledges keep their original low restitution.
 
 Known accepted edge: at full-scale levels the bar tops approach the ceiling and
 objects riding them have nowhere to be; the backstop pins them at the bar top,
