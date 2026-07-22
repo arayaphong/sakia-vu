@@ -18,7 +18,7 @@ export class TabAudioSource {
 
     // A video track is required to present the share picker, but SakiaVU only
     // consumes audio after the user has chosen a tab or screen.
-    for (const track of stream.getVideoTracks()) track.stop();
+    stream.getVideoTracks().forEach(track => track.stop());
 
     if (stream.getAudioTracks().length === 0) {
       throw new Error('no audio shared with the tab/screen');

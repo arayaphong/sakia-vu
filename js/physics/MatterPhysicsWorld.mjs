@@ -20,6 +20,8 @@ export class MatterPhysicsWorld {
   #peaks = [];
   #fillers = [];
   #objects = [];
+  #bandIndices;
+  #gapIndices;
   #peaksInWorld = false;
   #accumulator = 0;
 
@@ -34,6 +36,11 @@ export class MatterPhysicsWorld {
     this.#matter = Matter;
     this.#layout = layout;
     this.#random = random;
+    this.#bandIndices = Array.from(
+      { length: layout.bandCount },
+      (_, band) => band,
+    );
+    this.#gapIndices = this.#bandIndices.slice(0, -1);
     this.available = Boolean(Matter);
     this.barTops = new Array(layout.bandCount).fill(layout.groundY);
 
@@ -44,12 +51,16 @@ export class MatterPhysicsWorld {
     if (!this.available) return;
 
     this.#accumulator += Math.min(dtSeconds, MAX_FRAME_DT);
-    while (this.#accumulator >= FIXED_DT) {
+    const stepCount = Math.max(
+      0,
+      Math.floor(this.#accumulator / FIXED_DT),
+    );
+    Array.from({ length: stepCount }).forEach(() => {
       this.#syncKinematics(meter);
       this.#matter.Engine.update(this.#engine, FIXED_DT * 1000);
       this.#enforceSurface();
-      this.#accumulator -= FIXED_DT;
-    }
+    });
+    this.#accumulator -= stepCount * FIXED_DT;
 
     this.#pruneEscaped();
   }
@@ -65,9 +76,9 @@ export class MatterPhysicsWorld {
   clear() {
     if (!this.available) return;
 
-    for (const object of this.#objects) {
+    this.#objects.forEach((object) => {
       this.#matter.Composite.remove(this.#engine.world, object.body);
-    }
+    });
     this.#objects = [];
   }
 
@@ -78,20 +89,20 @@ export class MatterPhysicsWorld {
 
   // Meter surface y at logicalX from the bars' actual positions.
   surfaceYAt(logicalX) {
-    const { bandCount, barWidth, columnWidth } = this.#layout;
+    const { barWidth } = this.#layout;
 
-    for (let band = 0; band < bandCount; band += 1) {
-      if (Math.abs(this.#layout.barCenterX(band) - logicalX) <= barWidth / 2) {
-        return this.barTops[band];
-      }
-    }
+    const band = this.#bandIndices.find((index) => (
+      Math.abs(this.#layout.barCenterX(index) - logicalX) <= barWidth / 2
+    ));
+    if (band !== undefined) return this.barTops[band];
 
-    for (let gap = 0; gap < bandCount - 1; gap += 1) {
-      const leftX = this.#layout.barCenterX(gap) + barWidth / 2;
-      const rightX = this.#layout.barCenterX(gap + 1) - barWidth / 2;
-      if (logicalX > leftX && logicalX < rightX) {
-        return Math.max(this.barTops[gap], this.barTops[gap + 1]);
-      }
+    const gap = this.#gapIndices.find((index) => {
+      const leftX = this.#layout.barCenterX(index) + barWidth / 2;
+      const rightX = this.#layout.barCenterX(index + 1) - barWidth / 2;
+      return logicalX > leftX && logicalX < rightX;
+    });
+    if (gap !== undefined) {
+      return Math.max(this.barTops[gap], this.barTops[gap + 1]);
     }
 
     return null;
@@ -99,17 +110,17 @@ export class MatterPhysicsWorld {
 
   // Highest safe spawn position over every overlapping meter column.
   safeSpawnY(logicalX, halfSize, logicalY) {
-    const { bandCount, barWidth, groundY } = this.#layout;
-    let topY = groundY;
+    const { barWidth, groundY } = this.#layout;
 
-    for (let band = 0; band < bandCount; band += 1) {
-      if (
+    const topY = this.#bandIndices.reduce(
+      (currentTopY, band) => (
         Math.abs(this.#layout.barCenterX(band) - logicalX)
         < halfSize + barWidth / 2
-      ) {
-        topY = Math.min(topY, this.barTops[band]);
-      }
-    }
+          ? Math.min(currentTopY, this.barTops[band])
+          : currentTopY
+      ),
+      groundY,
+    );
 
     return Math.min(logicalY, topY - halfSize - 6);
   }
@@ -133,7 +144,6 @@ export class MatterPhysicsWorld {
       logicalWidth,
       logicalHeight,
       groundY,
-      bandCount,
       barWidth,
       segmentHeight,
       columnWidth,
@@ -149,14 +159,14 @@ export class MatterPhysicsWorld {
       Bodies.rectangle(logicalWidth + 50, logicalHeight / 2, 100, logicalHeight + 200),
     ];
 
-    for (const wall of walls) {
+    walls.forEach((wall) => {
       wall.isStatic = true;
       wall.friction = 0.3;
       wall.restitution = 0.72;
       Composite.add(this.#engine.world, wall);
-    }
+    });
 
-    for (let band = 0; band < bandCount; band += 1) {
+    this.#bandIndices.forEach((band) => {
       const centerX = this.#layout.barCenterX(band);
       const bar = Bodies.rectangle(
         centerX,
@@ -177,9 +187,9 @@ export class MatterPhysicsWorld {
       );
       peak.plugin.isPeakLedge = true;
       this.#peaks.push(peak);
-    }
+    });
 
-    for (let gap = 0; gap < bandCount - 1; gap += 1) {
+    this.#gapIndices.forEach((gap) => {
       const filler = Bodies.rectangle(
         this.#layout.barCenterX(gap) + columnWidth / 2,
         groundY + 50,
@@ -189,30 +199,30 @@ export class MatterPhysicsWorld {
       );
       this.#fillers.push(filler);
       Composite.add(this.#engine.world, filler);
-    }
+    });
 
     Events.on(this.#engine, 'beforeUpdate', () => this.#filterPeakPairs());
   }
 
   #filterPeakPairs() {
-    for (const pair of this.#engine.pairs.list) {
+    this.#engine.pairs.list.forEach((pair) => {
       const bodyAIsPeak = pair.bodyA.plugin?.isPeakLedge;
       const bodyBIsPeak = pair.bodyB.plugin?.isPeakLedge;
-      if (!bodyAIsPeak && !bodyBIsPeak) continue;
+      if (!bodyAIsPeak && !bodyBIsPeak) return;
 
       const ledge = bodyAIsPeak ? pair.bodyA : pair.bodyB;
       const object = bodyAIsPeak ? pair.bodyB : pair.bodyA;
       if (object.position.y > ledge.position.y) pair.isActive = false;
-    }
+    });
   }
 
   #syncKinematics(meter) {
     const { Body, Composite } = this.#matter;
-    const { bandCount, segmentHeight } = this.#layout;
+    const { segmentHeight } = this.#layout;
 
     if (meter.peakHoldEnabled !== this.#peaksInWorld) {
       this.#peaksInWorld = meter.peakHoldEnabled;
-      for (let band = 0; band < bandCount; band += 1) {
+      this.#bandIndices.forEach((band) => {
         if (this.#peaksInWorld) {
           Body.setPosition(this.#peaks[band], {
             x: this.#layout.barCenterX(band),
@@ -223,10 +233,10 @@ export class MatterPhysicsWorld {
         } else {
           Composite.remove(this.#engine.world, this.#peaks[band]);
         }
-      }
+      });
     }
 
-    for (let band = 0; band < bandCount; band += 1) {
+    this.#bandIndices.forEach((band) => {
       const bar = this.#bars[band];
       const targetY = this.#layout.barTopForLevel(meter.levels[band])
         + BAR_HALF_HEIGHT;
@@ -255,16 +265,16 @@ export class MatterPhysicsWorld {
         });
         Body.setVelocity(peak, { x: 0, y: peakStep });
       }
-    }
+    });
 
     this.#syncGapFillers();
   }
 
   #syncGapFillers() {
     const { Body, Vertices } = this.#matter;
-    const { bandCount, barWidth, groundY } = this.#layout;
+    const { barWidth, groundY } = this.#layout;
 
-    for (let gap = 0; gap < bandCount - 1; gap += 1) {
+    this.#gapIndices.forEach((gap) => {
       const leftX = this.#layout.barCenterX(gap) + barWidth / 2;
       const rightX = this.#layout.barCenterX(gap + 1) - barWidth / 2;
       const topY = Math.max(this.barTops[gap], this.barTops[gap + 1]);
@@ -276,40 +286,40 @@ export class MatterPhysicsWorld {
         { x: rightX, y: bottomY },
         { x: leftX, y: bottomY },
       ], this.#fillers[gap]));
-    }
+    });
   }
 
   #enforceSurface() {
     const { Body } = this.#matter;
 
-    for (const object of this.#objects) {
+    this.#objects.forEach((object) => {
       const position = object.body.position;
       let lowestPoint = { x: position.x, y: position.y + object.size };
 
       if (object.kind === 'box') {
         const cosine = Math.cos(object.body.angle);
         const sine = Math.sin(object.body.angle);
-        let maximumY = -Infinity;
-        let cornerX = position.x;
-
-        for (const signX of [-object.size, object.size]) {
-          for (const signY of [-object.size, object.size]) {
+        const corners = [-object.size, object.size].flatMap((signX) => (
+          [-object.size, object.size].map((signY) => {
             const y = position.y + signX * sine + signY * cosine;
-            if (y > maximumY) {
-              maximumY = y;
-              cornerX = position.x + signX * cosine - signY * sine;
-            }
-          }
-        }
+            return {
+              x: position.x + signX * cosine - signY * sine,
+              y,
+            };
+          })
+        ));
 
-        lowestPoint = { x: cornerX, y: maximumY };
+        lowestPoint = corners.reduce(
+          (lowest, corner) => (corner.y > lowest.y ? corner : lowest),
+          { x: position.x, y: -Infinity },
+        );
       }
 
       const surfaceY = this.surfaceYAt(lowestPoint.x);
-      if (surfaceY === null) continue;
+      if (surfaceY === null) return;
 
       const depth = lowestPoint.y - surfaceY;
-      if (depth <= SURFACE_SLOP_PX) continue;
+      if (depth <= SURFACE_SLOP_PX) return;
 
       Body.setPosition(object.body, {
         x: position.x,
@@ -319,7 +329,7 @@ export class MatterPhysicsWorld {
       if (velocity.y > 0) {
         Body.setVelocity(object.body, { x: velocity.x, y: 0 });
       }
-    }
+    });
   }
 
   #addObject(kind, logicalX, logicalY) {

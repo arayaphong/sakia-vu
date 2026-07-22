@@ -14,6 +14,9 @@ export class SpectrumAnalyzer {
     peakAcceleration: 0.0009,
   });
 
+  #bandIndexes;
+  #binIndexesByBand = [];
+
   layout;
   fftSize;
   minFrequency;
@@ -56,6 +59,10 @@ export class SpectrumAnalyzer {
     this.peaks = new Array(layout.bandCount).fill(0);
     this.peakVelocity = new Array(layout.bandCount).fill(0);
     this.labels = new Array(layout.bandCount).fill('');
+    this.#bandIndexes = Array.from(
+      { length: layout.bandCount },
+      (_, band) => band,
+    );
   }
 
   attach(node, sampleRate) {
@@ -69,7 +76,10 @@ export class SpectrumAnalyzer {
     const hzPerBin = (sampleRate / 2) / binCount;
     const frequencyRatio = this.maxFrequency / this.minFrequency;
 
-    for (let i = 0; i <= this.layout.bandCount; i++) {
+    Array.from(
+      { length: this.layout.bandCount + 1 },
+      (_, index) => index,
+    ).forEach((i) => {
       const frequency = this.minFrequency
         * frequencyRatio ** (i / this.layout.bandCount);
       this.bandEdges[i] = Math.round(frequency / hzPerBin);
@@ -83,27 +93,36 @@ export class SpectrumAnalyzer {
             ? `${(centerFrequency / 1000).toFixed(1)}k`
             : Math.round(centerFrequency).toString();
       }
-    }
+    });
+
+    const readableBinCount = this.bins?.length ?? binCount;
+    this.#binIndexesByBand = this.#bandIndexes.map((band) => {
+      const lowBin = this.bandEdges[band];
+      const highBin = Math.max(
+        Math.min(this.bandEdges[band + 1], readableBinCount),
+        lowBin + 1,
+      );
+
+      return Array.from(
+        { length: Math.ceil(highBin - lowBin) },
+        (_, offset) => lowBin + offset,
+      );
+    });
   }
 
   update(gain, peakHoldEnabled) {
     if (!this.node || !this.bins) return;
 
     this.node.getByteFrequencyData(this.bins);
-    const binCount = this.bins.length;
     const { release, peakAcceleration } = SpectrumAnalyzer.#BALLISTICS;
 
-    for (const band of this.levels.keys()) {
-      const lowBin = this.bandEdges[band];
-      const highBin = Math.max(
-        Math.min(this.bandEdges[band + 1], binCount),
-        lowBin + 1,
+    this.#bandIndexes.forEach((band) => {
+      const binIndexes = this.#binIndexesByBand[band];
+      const sum = binIndexes.reduce(
+        (total, bin) => total + this.bins[bin] / 255,
+        0,
       );
-      let sum = 0;
-      let count = 0;
-      for (let bin = lowBin; bin < highBin; bin++, count++) {
-        sum += this.bins[bin] / 255;
-      }
+      const count = binIndexes.length;
       const value = Math.min(1, (count ? sum / count : 0) * gain);
 
       if (value > this.levels[band]) {
@@ -124,7 +143,7 @@ export class SpectrumAnalyzer {
       }
 
       if (!peakHoldEnabled) this.peaks[band] = 0;
-    }
+    });
   }
 
   reset() {

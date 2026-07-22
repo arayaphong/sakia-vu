@@ -87,7 +87,7 @@ export class AudioCaptureService {
 
     const stream = this.#mediaStream;
     this.#mediaStream = null;
-    for (const track of stream?.getTracks() ?? []) track.stop();
+    (stream?.getTracks() ?? []).forEach(track => track.stop());
   }
 
   async listInputDevices() {

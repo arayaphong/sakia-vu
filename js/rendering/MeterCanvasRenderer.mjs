@@ -19,6 +19,8 @@ export class MeterCanvasRenderer {
   #context;
   #devicePixelRatio;
   #palette;
+  #bandIndices;
+  #segmentIndices;
 
   constructor({
     canvas,
@@ -43,6 +45,14 @@ export class MeterCanvasRenderer {
     this.#context = context;
     this.#devicePixelRatio = devicePixelRatio;
     this.#palette = { ...DEFAULT_PALETTE, ...palette };
+    this.#bandIndices = Array.from(
+      { length: layout.bandCount },
+      (_, index) => index,
+    );
+    this.#segmentIndices = Array.from(
+      { length: layout.segmentCount },
+      (_, index) => index,
+    );
   }
 
   resize() {
@@ -88,12 +98,12 @@ export class MeterCanvasRenderer {
     const { levels, peaks, labels, peakHoldEnabled } = state;
     const x0 = layout.padX + (layout.columnWidth - layout.barWidth) / 2;
 
-    for (let band = 0; band < layout.bandCount; band += 1) {
+    this.#bandIndices.forEach((band) => {
       const x = x0 + band * layout.columnWidth;
       const lit = layout.litSegments(levels[band]);
       const peakSegment = layout.litSegments(peaks[band]);
 
-      for (let segment = 0; segment < layout.segmentCount; segment += 1) {
+      this.#segmentIndices.forEach((segment) => {
         const ratio = (segment + 1) / layout.segmentCount;
         const y = layout.padTop
           + (layout.segmentCount - 1 - segment)
@@ -119,7 +129,7 @@ export class MeterCanvasRenderer {
         }
 
         ctx.fill();
-      }
+      });
 
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 1;
@@ -134,7 +144,7 @@ export class MeterCanvasRenderer {
         x + layout.barWidth / 2 - textWidth / 2,
         layout.logicalHeight - 16,
       );
-    }
+    });
 
     ctx.fillStyle = palette.unit;
     ctx.font = '20px monospace';
@@ -149,7 +159,7 @@ export class MeterCanvasRenderer {
   #drawPhysicsOverlay(objects) {
     const ctx = this.#context;
 
-    for (const { angle, hue, kind, size, x, y } of objects) {
+    objects.forEach(({ angle, hue, kind, size, x, y }) => {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
@@ -185,7 +195,7 @@ export class MeterCanvasRenderer {
       }
 
       ctx.restore();
-    }
+    });
   }
 
   #segmentColor(ratio) {
