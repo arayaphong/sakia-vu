@@ -60,6 +60,26 @@ Toggle **Physics** to reveal the playground controls — **Drop Ball**,
 **Drop Box**, **Clear**, **Low Gravity** — or click the canvas to spawn a ball
 (right-click for a box). The simulation keeps running while capture is stopped.
 
+## Web port
+
+A self-contained browser version lives in `web/index.html` — no build step, no
+dependencies to install (matter-js loads from CDN). It replicates the native
+app feature-for-feature: 16-band meter with peak hold and gain, mic or
+tab/system-audio capture, and the physics playground (same gap-filler,
+one-way-ledge, and `enforceSurface` anti-trap design).
+
+```bash
+cd web && python3 -m http.server
+# open http://localhost:8000
+```
+
+Serving over http(s) (or localhost) is required — `getUserMedia` needs a
+secure context, so opening the file directly won't work. **Tab audio** uses the
+browser's share picker (`getDisplayMedia`): any tab/screen with audio on
+Chromium, tab audio only on Firefox. The native DSP is a re-implementation of
+the Web Audio `AnalyserNode`, so the web version uses the real thing with
+identical settings (FFT 4096, smoothing 0.6, −100…−30 dB).
+
 ## Headless smoke tests
 
 Render a synthetic multi-tone signal to a PNG — no display or microphone required:
