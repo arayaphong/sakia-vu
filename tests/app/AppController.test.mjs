@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { AppController } from '../../js/app/AppController.js';
+import { AppController } from '../../js/app/AppController.mjs';
 
 class FakeView {
   constructor() {

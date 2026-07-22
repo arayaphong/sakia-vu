@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MeterLayout } from '../../js/core/MeterLayout.js';
+import { MeterLayout } from '../../js/core/MeterLayout.mjs';
 
 test('default layout preserves the original logical meter geometry', () => {
   const layout = new MeterLayout();

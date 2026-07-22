@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { AudioCaptureService } from '../../js/audio/AudioCaptureService.js';
-import { MicrophoneSource } from '../../js/audio/sources/MicrophoneSource.js';
-import { TabAudioSource } from '../../js/audio/sources/TabAudioSource.js';
+import { AudioCaptureService } from '../../js/audio/AudioCaptureService.mjs';
+import { MicrophoneSource } from '../../js/audio/sources/MicrophoneSource.mjs';
+import { TabAudioSource } from '../../js/audio/sources/TabAudioSource.mjs';
 
 class FakeTrack {
   constructor(kind) {

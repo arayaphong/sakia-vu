@@ -1,5 +1,3 @@
-'use strict';
-
 const FIXED_DT = 1 / 60;
 const MAX_FRAME_DT = 0.05;
 const MAX_OBJECTS = 16;
@@ -14,24 +12,30 @@ const SURFACE_SLOP_PX = 2;
  * unavailable and can be tested without relying on browser globals.
  */
 export class MatterPhysicsWorld {
+  #matter;
+  #layout;
+  #random;
+  #engine = null;
+  #bars = [];
+  #peaks = [];
+  #fillers = [];
+  #objects = [];
+  #peaksInWorld = false;
+  #accumulator = 0;
+
+  available;
+  barTops;
+
   constructor({ Matter, layout, random = Math.random }) {
     if (!layout) {
       throw new TypeError('MatterPhysicsWorld requires a meter layout');
     }
 
-    this.Matter = Matter;
-    this.layout = layout;
-    this.random = random;
+    this.#matter = Matter;
+    this.#layout = layout;
+    this.#random = random;
     this.available = Boolean(Matter);
-
-    this.engine = null;
-    this.bars = [];
-    this.peaks = [];
-    this.fillers = [];
-    this.objects = [];
     this.barTops = new Array(layout.bandCount).fill(layout.groundY);
-    this.peaksInWorld = false;
-    this.accumulator = 0;
 
     if (this.available) this.#initialize();
   }
@@ -39,12 +43,12 @@ export class MatterPhysicsWorld {
   step(dtSeconds, meter) {
     if (!this.available) return;
 
-    this.accumulator += Math.min(dtSeconds, MAX_FRAME_DT);
-    while (this.accumulator >= FIXED_DT) {
+    this.#accumulator += Math.min(dtSeconds, MAX_FRAME_DT);
+    while (this.#accumulator >= FIXED_DT) {
       this.#syncKinematics(meter);
-      this.Matter.Engine.update(this.engine, FIXED_DT * 1000);
+      this.#matter.Engine.update(this.#engine, FIXED_DT * 1000);
       this.#enforceSurface();
-      this.accumulator -= FIXED_DT;
+      this.#accumulator -= FIXED_DT;
     }
 
     this.#pruneEscaped();
@@ -61,30 +65,30 @@ export class MatterPhysicsWorld {
   clear() {
     if (!this.available) return;
 
-    for (const object of this.objects) {
-      this.Matter.Composite.remove(this.engine.world, object.body);
+    for (const object of this.#objects) {
+      this.#matter.Composite.remove(this.#engine.world, object.body);
     }
-    this.objects = [];
+    this.#objects = [];
   }
 
   setLowGravity(lowGravity) {
     if (!this.available) return;
-    this.engine.gravity.y = lowGravity ? 0.2 : 2;
+    this.#engine.gravity.y = lowGravity ? 0.2 : 2;
   }
 
   // Meter surface y at logicalX from the bars' actual positions.
   surfaceYAt(logicalX) {
-    const { bandCount, barWidth, columnWidth } = this.layout;
+    const { bandCount, barWidth, columnWidth } = this.#layout;
 
     for (let band = 0; band < bandCount; band += 1) {
-      if (Math.abs(this.layout.barCenterX(band) - logicalX) <= barWidth / 2) {
+      if (Math.abs(this.#layout.barCenterX(band) - logicalX) <= barWidth / 2) {
         return this.barTops[band];
       }
     }
 
     for (let gap = 0; gap < bandCount - 1; gap += 1) {
-      const leftX = this.layout.barCenterX(gap) + barWidth / 2;
-      const rightX = this.layout.barCenterX(gap + 1) - barWidth / 2;
+      const leftX = this.#layout.barCenterX(gap) + barWidth / 2;
+      const rightX = this.#layout.barCenterX(gap + 1) - barWidth / 2;
       if (logicalX > leftX && logicalX < rightX) {
         return Math.max(this.barTops[gap], this.barTops[gap + 1]);
       }
@@ -95,12 +99,12 @@ export class MatterPhysicsWorld {
 
   // Highest safe spawn position over every overlapping meter column.
   safeSpawnY(logicalX, halfSize, logicalY) {
-    const { bandCount, barWidth, groundY } = this.layout;
+    const { bandCount, barWidth, groundY } = this.#layout;
     let topY = groundY;
 
     for (let band = 0; band < bandCount; band += 1) {
       if (
-        Math.abs(this.layout.barCenterX(band) - logicalX)
+        Math.abs(this.#layout.barCenterX(band) - logicalX)
         < halfSize + barWidth / 2
       ) {
         topY = Math.min(topY, this.barTops[band]);
@@ -113,7 +117,7 @@ export class MatterPhysicsWorld {
   snapshot() {
     if (!this.available) return [];
 
-    return this.objects.map((object) => ({
+    return this.#objects.map((object) => ({
       kind: object.kind,
       size: object.size,
       hue: object.hue,
@@ -124,7 +128,7 @@ export class MatterPhysicsWorld {
   }
 
   #initialize() {
-    const { Engine, Bodies, Composite, Events } = this.Matter;
+    const { Engine, Bodies, Composite, Events } = this.#matter;
     const {
       logicalWidth,
       logicalHeight,
@@ -133,10 +137,10 @@ export class MatterPhysicsWorld {
       barWidth,
       segmentHeight,
       columnWidth,
-    } = this.layout;
+    } = this.#layout;
 
-    this.engine = Engine.create({ enableSleeping: false });
-    this.engine.gravity.y = 2;
+    this.#engine = Engine.create({ enableSleeping: false });
+    this.#engine.gravity.y = 2;
 
     const walls = [
       Bodies.rectangle(logicalWidth / 2, groundY + 50, logicalWidth + 200, 100),
@@ -149,11 +153,11 @@ export class MatterPhysicsWorld {
       wall.isStatic = true;
       wall.friction = 0.3;
       wall.restitution = 0.72;
-      Composite.add(this.engine.world, wall);
+      Composite.add(this.#engine.world, wall);
     }
 
     for (let band = 0; band < bandCount; band += 1) {
-      const centerX = this.layout.barCenterX(band);
+      const centerX = this.#layout.barCenterX(band);
       const bar = Bodies.rectangle(
         centerX,
         groundY + BAR_HALF_HEIGHT,
@@ -161,8 +165,8 @@ export class MatterPhysicsWorld {
         BAR_HALF_HEIGHT * 2,
         { isStatic: true, friction: 0.1, restitution: 0 },
       );
-      this.bars.push(bar);
-      Composite.add(this.engine.world, bar);
+      this.#bars.push(bar);
+      Composite.add(this.#engine.world, bar);
 
       const peak = Bodies.rectangle(
         centerX,
@@ -172,28 +176,28 @@ export class MatterPhysicsWorld {
         { isStatic: true, friction: 0.2, restitution: 0.3 },
       );
       peak.plugin.isPeakLedge = true;
-      this.peaks.push(peak);
+      this.#peaks.push(peak);
     }
 
     for (let gap = 0; gap < bandCount - 1; gap += 1) {
       const filler = Bodies.rectangle(
-        this.layout.barCenterX(gap) + columnWidth / 2,
+        this.#layout.barCenterX(gap) + columnWidth / 2,
         groundY + 50,
         columnWidth - barWidth,
         100,
         { isStatic: true, friction: 0.08, restitution: 0 },
       );
-      this.fillers.push(filler);
-      Composite.add(this.engine.world, filler);
+      this.#fillers.push(filler);
+      Composite.add(this.#engine.world, filler);
     }
 
-    Events.on(this.engine, 'beforeUpdate', () => this.#filterPeakPairs());
+    Events.on(this.#engine, 'beforeUpdate', () => this.#filterPeakPairs());
   }
 
   #filterPeakPairs() {
-    for (const pair of this.engine.pairs.list) {
-      const bodyAIsPeak = pair.bodyA.plugin.isPeakLedge;
-      const bodyBIsPeak = pair.bodyB.plugin.isPeakLedge;
+    for (const pair of this.#engine.pairs.list) {
+      const bodyAIsPeak = pair.bodyA.plugin?.isPeakLedge;
+      const bodyBIsPeak = pair.bodyB.plugin?.isPeakLedge;
       if (!bodyAIsPeak && !bodyBIsPeak) continue;
 
       const ledge = bodyAIsPeak ? pair.bodyA : pair.bodyB;
@@ -203,28 +207,28 @@ export class MatterPhysicsWorld {
   }
 
   #syncKinematics(meter) {
-    const { Body, Composite } = this.Matter;
-    const { bandCount, segmentHeight } = this.layout;
+    const { Body, Composite } = this.#matter;
+    const { bandCount, segmentHeight } = this.#layout;
 
-    if (meter.peakHoldEnabled !== this.peaksInWorld) {
-      this.peaksInWorld = meter.peakHoldEnabled;
+    if (meter.peakHoldEnabled !== this.#peaksInWorld) {
+      this.#peaksInWorld = meter.peakHoldEnabled;
       for (let band = 0; band < bandCount; band += 1) {
-        if (this.peaksInWorld) {
-          Body.setPosition(this.peaks[band], {
-            x: this.layout.barCenterX(band),
-            y: this.layout.barTopForLevel(meter.peaks[band]) + segmentHeight / 2,
+        if (this.#peaksInWorld) {
+          Body.setPosition(this.#peaks[band], {
+            x: this.#layout.barCenterX(band),
+            y: this.#layout.barTopForLevel(meter.peaks[band]) + segmentHeight / 2,
           });
-          Body.setVelocity(this.peaks[band], { x: 0, y: 0 });
-          Composite.add(this.engine.world, this.peaks[band]);
+          Body.setVelocity(this.#peaks[band], { x: 0, y: 0 });
+          Composite.add(this.#engine.world, this.#peaks[band]);
         } else {
-          Composite.remove(this.engine.world, this.peaks[band]);
+          Composite.remove(this.#engine.world, this.#peaks[band]);
         }
       }
     }
 
     for (let band = 0; band < bandCount; band += 1) {
-      const bar = this.bars[band];
-      const targetY = this.layout.barTopForLevel(meter.levels[band])
+      const bar = this.#bars[band];
+      const targetY = this.#layout.barTopForLevel(meter.levels[band])
         + BAR_HALF_HEIGHT;
       const step = Math.max(
         -MAX_KINEMATIC_STEP,
@@ -237,9 +241,9 @@ export class MatterPhysicsWorld {
       Body.setVelocity(bar, { x: 0, y: step });
       this.barTops[band] = bar.position.y - BAR_HALF_HEIGHT;
 
-      if (this.peaksInWorld) {
-        const peak = this.peaks[band];
-        const peakTarget = this.layout.barTopForLevel(meter.peaks[band])
+      if (this.#peaksInWorld) {
+        const peak = this.#peaks[band];
+        const peakTarget = this.#layout.barTopForLevel(meter.peaks[band])
           + segmentHeight / 2;
         const peakStep = Math.max(
           -MAX_KINEMATIC_STEP,
@@ -257,28 +261,28 @@ export class MatterPhysicsWorld {
   }
 
   #syncGapFillers() {
-    const { Body, Vertices } = this.Matter;
-    const { bandCount, barWidth, groundY } = this.layout;
+    const { Body, Vertices } = this.#matter;
+    const { bandCount, barWidth, groundY } = this.#layout;
 
     for (let gap = 0; gap < bandCount - 1; gap += 1) {
-      const leftX = this.layout.barCenterX(gap) + barWidth / 2;
-      const rightX = this.layout.barCenterX(gap + 1) - barWidth / 2;
+      const leftX = this.#layout.barCenterX(gap) + barWidth / 2;
+      const rightX = this.#layout.barCenterX(gap + 1) - barWidth / 2;
       const topY = Math.max(this.barTops[gap], this.barTops[gap + 1]);
       const bottomY = groundY + 100;
 
-      Body.setVertices(this.fillers[gap], Vertices.create([
+      Body.setVertices(this.#fillers[gap], Vertices.create([
         { x: leftX, y: topY },
         { x: rightX, y: topY },
         { x: rightX, y: bottomY },
         { x: leftX, y: bottomY },
-      ], this.fillers[gap]));
+      ], this.#fillers[gap]));
     }
   }
 
   #enforceSurface() {
-    const { Body } = this.Matter;
+    const { Body } = this.#matter;
 
-    for (const object of this.objects) {
+    for (const object of this.#objects) {
       const position = object.body.position;
       let lowestPoint = { x: position.x, y: position.y + object.size };
 
@@ -321,14 +325,14 @@ export class MatterPhysicsWorld {
   #addObject(kind, logicalX, logicalY) {
     if (!this.available) return;
 
-    const { Bodies, Composite } = this.Matter;
+    const { Bodies, Composite } = this.#matter;
     const randomBetween = (minimum, maximum) => (
-      minimum + this.random() * (maximum - minimum)
+      minimum + this.#random() * (maximum - minimum)
     );
 
-    if (this.objects.length >= MAX_OBJECTS) {
-      Composite.remove(this.engine.world, this.objects[0].body);
-      this.objects.shift();
+    if (this.#objects.length >= MAX_OBJECTS) {
+      Composite.remove(this.#engine.world, this.#objects[0].body);
+      this.#objects.shift();
     }
 
     const isBall = kind === 'ball';
@@ -337,13 +341,13 @@ export class MatterPhysicsWorld {
 
     if (logicalX < 0) {
       logicalX = randomBetween(
-        this.layout.padX + size + 2,
-        this.layout.logicalWidth - this.layout.padX - size - 2,
+        this.#layout.padX + size + 2,
+        this.#layout.logicalWidth - this.#layout.padX - size - 2,
       );
     }
     logicalX = Math.max(
       size + 2,
-      Math.min(this.layout.logicalWidth - size - 2, logicalX),
+      Math.min(this.#layout.logicalWidth - size - 2, logicalX),
     );
     logicalY = this.safeSpawnY(logicalX, size, logicalY);
 
@@ -359,15 +363,15 @@ export class MatterPhysicsWorld {
         restitution: 0.2,
       });
 
-    Composite.add(this.engine.world, body);
-    this.objects.push({ body, kind, size, hue });
+    Composite.add(this.#engine.world, body);
+    this.#objects.push({ body, kind, size, hue });
   }
 
   #pruneEscaped() {
-    this.objects = this.objects.filter((object) => {
+    this.#objects = this.#objects.filter((object) => {
       const { x, y } = object.body.position;
       if (Math.abs(x) > 5000 || Math.abs(y) > 5000) {
-        this.Matter.Composite.remove(this.engine.world, object.body);
+        this.#matter.Composite.remove(this.#engine.world, object.body);
         return false;
       }
       return true;

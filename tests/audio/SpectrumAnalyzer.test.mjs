@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SpectrumAnalyzer } from '../../js/audio/SpectrumAnalyzer.js';
-import { MeterLayout } from '../../js/core/MeterLayout.js';
+import { SpectrumAnalyzer } from '../../js/audio/SpectrumAnalyzer.mjs';
+import { MeterLayout } from '../../js/core/MeterLayout.mjs';
 
 const EXPECTED_48K_EDGES = [
   3, 4, 6, 8, 12, 18, 27, 40, 59, 88, 130, 192, 284, 421, 623, 922, 1365,

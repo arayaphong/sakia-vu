@@ -3,11 +3,46 @@
  * byte-frequency data supplied by a Web Audio AnalyserNode.
  */
 export class SpectrumAnalyzer {
+  static #DEFAULTS = Object.freeze({
+    fftSize: 4096,
+    minFrequency: 30,
+    maxFrequency: 16000,
+  });
+
+  static #BALLISTICS = Object.freeze({
+    release: 0.22,
+    peakAcceleration: 0.0009,
+  });
+
+  layout;
+  fftSize;
+  minFrequency;
+  maxFrequency;
+  node = null;
+  bins = null;
+  bandEdges;
+  levels;
+  peaks;
+  peakVelocity;
+  labels;
+
+  static get DEFAULT_FFT_SIZE() {
+    return SpectrumAnalyzer.#DEFAULTS.fftSize;
+  }
+
+  static get DEFAULT_MIN_FREQUENCY() {
+    return SpectrumAnalyzer.#DEFAULTS.minFrequency;
+  }
+
+  static get DEFAULT_MAX_FREQUENCY() {
+    return SpectrumAnalyzer.#DEFAULTS.maxFrequency;
+  }
+
   constructor({
     layout,
-    fftSize = 4096,
-    minFrequency = 30,
-    maxFrequency = 16000,
+    fftSize = SpectrumAnalyzer.DEFAULT_FFT_SIZE,
+    minFrequency = SpectrumAnalyzer.DEFAULT_MIN_FREQUENCY,
+    maxFrequency = SpectrumAnalyzer.DEFAULT_MAX_FREQUENCY,
   } = {}) {
     if (!layout) throw new TypeError('SpectrumAnalyzer requires a layout');
 
@@ -16,8 +51,6 @@ export class SpectrumAnalyzer {
     this.minFrequency = minFrequency;
     this.maxFrequency = maxFrequency;
 
-    this.node = null;
-    this.bins = null;
     this.bandEdges = new Array(layout.bandCount + 1).fill(0);
     this.levels = new Array(layout.bandCount).fill(0);
     this.peaks = new Array(layout.bandCount).fill(0);
@@ -38,12 +71,12 @@ export class SpectrumAnalyzer {
 
     for (let i = 0; i <= this.layout.bandCount; i++) {
       const frequency = this.minFrequency
-        * Math.pow(frequencyRatio, i / this.layout.bandCount);
+        * frequencyRatio ** (i / this.layout.bandCount);
       this.bandEdges[i] = Math.round(frequency / hzPerBin);
 
       if (i < this.layout.bandCount) {
         const centerFrequency = this.minFrequency
-          * Math.pow(frequencyRatio, (i + 0.5) / this.layout.bandCount);
+          * frequencyRatio ** ((i + 0.5) / this.layout.bandCount);
         this.labels[i] = centerFrequency >= 10000
           ? `${Math.round(centerFrequency / 1000)}k`
           : centerFrequency >= 1000
@@ -54,12 +87,13 @@ export class SpectrumAnalyzer {
   }
 
   update(gain, peakHoldEnabled) {
-    if (!this.node) return;
+    if (!this.node || !this.bins) return;
 
     this.node.getByteFrequencyData(this.bins);
     const binCount = this.bins.length;
+    const { release, peakAcceleration } = SpectrumAnalyzer.#BALLISTICS;
 
-    for (let band = 0; band < this.layout.bandCount; band++) {
+    for (const band of this.levels.keys()) {
       const lowBin = this.bandEdges[band];
       const highBin = Math.max(
         Math.min(this.bandEdges[band + 1], binCount),
@@ -75,14 +109,14 @@ export class SpectrumAnalyzer {
       if (value > this.levels[band]) {
         this.levels[band] = value;
       } else {
-        this.levels[band] += (value - this.levels[band]) * 0.22;
+        this.levels[band] += (value - this.levels[band]) * release;
       }
 
       if (this.levels[band] >= this.peaks[band]) {
         this.peaks[band] = this.levels[band];
         this.peakVelocity[band] = 0;
       } else {
-        this.peakVelocity[band] += 0.0009;
+        this.peakVelocity[band] += peakAcceleration;
         this.peaks[band] = Math.max(
           this.levels[band],
           this.peaks[band] - this.peakVelocity[band],

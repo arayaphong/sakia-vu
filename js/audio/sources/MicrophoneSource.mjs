@@ -5,17 +5,23 @@
  * request into the exact MediaDevices constraints used by SakiaVU.
  */
 export class MicrophoneSource {
+  static #AUDIO_CONSTRAINTS = Object.freeze({
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  });
+
+  #mediaDevices;
+
   constructor({ mediaDevices }) {
-    this.mediaDevices = mediaDevices;
+    this.#mediaDevices = mediaDevices;
   }
 
   async open({ deviceId } = {}) {
-    return this.mediaDevices.getUserMedia({
+    return this.#mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        ...MicrophoneSource.#AUDIO_CONSTRAINTS,
       },
     });
   }

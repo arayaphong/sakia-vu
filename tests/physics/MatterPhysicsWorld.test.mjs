@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MeterLayout } from '../../js/core/MeterLayout.js';
+import { MeterLayout } from '../../js/core/MeterLayout.mjs';
 import {
   MatterPhysicsWorld,
   PHYSICS_TIMING,
-} from '../../js/physics/MatterPhysicsWorld.js';
+} from '../../js/physics/MatterPhysicsWorld.mjs';
 
 test('missing Matter.js produces a safe, substitutable no-op world', () => {
   const layout = new MeterLayout();

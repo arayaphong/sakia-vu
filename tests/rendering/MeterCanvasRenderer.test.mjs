@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MeterLayout } from '../../js/core/MeterLayout.js';
-import { MeterCanvasRenderer } from '../../js/rendering/MeterCanvasRenderer.js';
+import { MeterLayout } from '../../js/core/MeterLayout.mjs';
+import { MeterCanvasRenderer } from '../../js/rendering/MeterCanvasRenderer.mjs';
 
 function createCanvas() {
   const calls = [];
